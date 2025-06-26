@@ -1,5 +1,10 @@
 # Module de Fuzzing LLVM C++
 
+[![CI Build and Test](https://github.com/USERNAME/coretrace-fuzz/actions/workflows/ci.yml/badge.svg)](https://github.com/USERNAME/coretrace-fuzz/actions/workflows/ci.yml)
+[![Release Build](https://github.com/USERNAME/coretrace-fuzz/actions/workflows/release.yml/badge.svg)](https://github.com/USERNAME/coretrace-fuzz/actions/workflows/release.yml)
+[![Platform Support](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-blue.svg)](https://github.com/USERNAME/coretrace-fuzz)
+[![LLVM Version](https://img.shields.io/badge/LLVM-19-orange.svg)](https://llvm.org/)
+
 Un module de fuzzing avancé utilisant LLVM 19 pour tester automatiquement des fonctions C++ et détecter les vulnérabilités.
 
 ## Fonctionnalités
@@ -34,21 +39,57 @@ include/
 
 ## Prérequis
 
+### Support des plateformes
+
+| Plateforme | Status | LLVM 19 | Notes |
+|------------|--------|---------|-------|
+| 🐧 Linux | ✅ Supporté | Apt/YUM | Ubuntu 20.04+, RHEL 8+ |
+| 🍎 macOS | ✅ Supporté | Homebrew | macOS 11+ (Intel & Apple Silicon) |
+| 🪟 Windows | ⏳ Planifié | - | WSL2 recommandé |
+
+### Installation automatique
+
+```bash
+# Vérifier l'environnement
+./scripts/validate_environment.sh
+
+# Build automatique cross-platform
+./scripts/build.sh Release
+```
+
+### Installation manuelle
+
 - **LLVM 19** avec headers de développement
 - **Clang++** pour la compilation
 - **CMake 3.16+**
 - **nlohmann/json** (installé automatiquement)
 
-### Installation LLVM 19 (Ubuntu/Debian)
+#### Ubuntu/Debian
 
 ```bash
+# Installer les dépendances
+sudo apt update
+sudo apt install build-essential cmake ninja-build git
+
 # Ajouter le repository LLVM
 wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
 sudo add-apt-repository "deb http://apt.llvm.org/$(lsb_release -cs)/ llvm-toolchain-$(lsb_release -cs)-19 main"
 
 # Installer LLVM 19
 sudo apt update
-sudo apt install llvm-19-dev clang-19 cmake build-essential
+sudo apt install llvm-19-dev llvm-19 clang-19 clang++-19
+```
+
+#### macOS
+
+```bash
+# Avec Homebrew
+brew install llvm@19 cmake ninja git
+
+# Configurer l'environnement
+export PATH="/opt/homebrew/opt/llvm@19/bin:$PATH"
+export LDFLAGS="-L/opt/homebrew/opt/llvm@19/lib"
+export CPPFLAGS="-I/opt/homebrew/opt/llvm@19/include"
 ```
 
 ## Compilation

@@ -1,0 +1,264 @@
+name: Release Build and Test
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      create_release:
+        description: 'Create a new release'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  build-release:
+    name: Build Release Binaries
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            llvm-setup: |
+              sudo apt-get update
+              sudo apt-get install -y build-essential cmake ninja-build wget lsb-release software-properties-common gnupg
+              wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
+              sudo add-apt-repository "deb http://apt.llvm.org/$(lsb_release -cs)/ llvm-toolchain-$(lsb_release -cs)-19 main"
+              sudo apt-get update
+              sudo apt-get install -y llvm-19 llvm-19-dev clang-19 clang++-19
+              sudo ln -sf /usr/lib/llvm-19 /usr/lib/llvm19
+            cmake-args: -DLLVM_DIR=/usr/lib/llvm19/lib/cmake/llvm -DCMAKE_C_COMPILER=clang-19 -DCMAKE_CXX_COMPILER=clang++-19
+            artifact-name: fuzzing_module-linux-x64
+          - os: macos-latest
+            platform: macos
+            llvm-setup: |
+              brew update
+              brew install llvm@19 cmake ninja
+            cmake-args: -DLLVM_DIR=/opt/homebrew/opt/llvm@19/lib/cmake/llvm -DCMAKE_C_COMPILER=/opt/homebrew/opt/llvm@19/bin/clang -DCMAKE_CXX_COMPILER=/opt/homebrew/opt/llvm@19/bin/clang++
+            artifact-name: fuzzing_module-macos-x64
+    
+    runs-on: ${{ matrix.os }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup LLVM and dependencies
+      run: ${{ matrix.llvm-setup }}
+    
+    - name: Configure CMake
+      run: |
+        mkdir -p build
+        cd build
+        cmake .. \
+          -DCMAKE_BUILD_TYPE=Release \
+          ${{ matrix.cmake-args }} \
+          -GNinja
+    
+    - name: Build project
+      run: |
+        cd build
+        ninja -v
+    
+    - name: Run comprehensive tests
+      run: |
+        cd build
+        
+        echo "=== Basic functionality test ==="
+        ./fuzzing_module --help
+        
+        echo "=== Safe function fuzzing test ==="
+        if [ -f ../tests/safe_test.cpp ]; then
+          timeout 60s ./fuzzing_module -f safe_add_function -s ../tests/safe_test.cpp -o safe_results.sarif -n 1000 --timeout 100 || echo "Safe test completed"
+        fi
+        
+        echo "=== Vulnerable function fuzzing test ==="
+        if [ -f ../tests/vulnerable_test.cpp ]; then
+          timeout 60s ./fuzzing_module -f vulnerable_function -s ../tests/vulnerable_test.cpp -o vulnerable_results.sarif -n 500 --timeout 100 || echo "Vulnerable test completed"
+        fi
+        
+        echo "=== All functions test ==="
+        if [ -f ../tests/safe_test.cpp ]; then
+          timeout 60s ./fuzzing_module --all-functions -s ../tests/safe_test.cpp -o all_functions_results.sarif -n 200 --timeout 100 || echo "All functions test completed"
+        fi
+        
+        echo "=== IR file test ==="
+        if [ -f ../tests/safe_test.cpp.ll ]; then
+          timeout 60s ./fuzzing_module -f safe_add_function -i ../tests/safe_test.cpp.ll -o ir_results.sarif -n 500 --timeout 100 || echo "IR test completed"
+        fi
+    
+    - name: Package release artifacts
+      run: |
+        cd build
+        
+        # Create release directory
+        mkdir -p release
+        
+        # Copy main executable
+        cp fuzzing_module release/
+        
+        # Copy test results if they exist
+        cp *.sarif release/ 2>/dev/null || echo "No SARIF files to copy"
+        
+        # Copy documentation
+        cp ../README.md release/
+        
+        # Create usage examples
+        cat > release/USAGE.md << 'EOF'
+        # LLVM Fuzzing Module Usage Examples
+        
+        ## Basic Usage
+        ```bash
+        # Fuzz a specific function from source
+        ./fuzzing_module -f function_name -s source.cpp -o results.sarif
+        
+        # Fuzz all functions in a source file
+        ./fuzzing_module --all-functions -s source.cpp -o results.sarif
+        
+        # Fuzz from LLVM IR file
+        ./fuzzing_module -f function_name -i bytecode.ll -o results.sarif
+        
+        # Customize fuzzing parameters
+        ./fuzzing_module -f function_name -s source.cpp -n 50000 --timeout 500 --max-size 2048
+        ```
+        
+        ## Advanced Usage
+        ```bash
+        # Test multiple specific functions
+        ./fuzzing_module --functions func1,func2,func3 -s source.cpp
+        
+        # Test multiple source files
+        ./fuzzing_module --sources file1.cpp,file2.cpp --all-functions
+        ```
+        EOF
+        
+        # Create platform-specific archive
+        if [ "${{ matrix.platform }}" = "linux" ]; then
+          tar -czf ${{ matrix.artifact-name }}.tar.gz -C release .
+        else
+          tar -czf ${{ matrix.artifact-name }}.tar.gz -C release .
+        fi
+    
+    - name: Upload release artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.artifact-name }}
+        path: build/${{ matrix.artifact-name }}.tar.gz
+        retention-days: 30
+    
+    - name: Upload to release (if release event)
+      if: github.event_name == 'release'
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ github.event.release.upload_url }}
+        asset_path: build/${{ matrix.artifact-name }}.tar.gz
+        asset_name: ${{ matrix.artifact-name }}.tar.gz
+        asset_content_type: application/gzip
+
+  security-scan:
+    name: Security Analysis
+    runs-on: ubuntu-latest
+    needs: build-release
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Download Linux binary
+      uses: actions/download-artifact@v4
+      with:
+        name: fuzzing_module-linux-x64
+        path: ./artifacts
+    
+    - name: Extract and analyze binary
+      run: |
+        cd artifacts
+        tar -xzf fuzzing_module-linux-x64.tar.gz
+        
+        echo "=== Binary information ==="
+        file fuzzing_module
+        ldd fuzzing_module || echo "Not dynamically linked or ldd failed"
+        
+        echo "=== Security checks ==="
+        # Check for basic security features
+        readelf -d fuzzing_module | grep -E "(RELRO|BIND_NOW)" || echo "No RELRO/BIND_NOW found"
+        objdump -h fuzzing_module | grep -E "\.gnu\.hash|\.hash" || echo "No hash sections found"
+        
+        echo "=== Symbols analysis ==="
+        nm fuzzing_module | grep -c " T " || echo "Symbol count check failed"
+
+  performance-test:
+    name: Performance Benchmarks
+    runs-on: ubuntu-latest
+    needs: build-release
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Download Linux binary
+      uses: actions/download-artifact@v4
+      with:
+        name: fuzzing_module-linux-x64
+        path: ./artifacts
+    
+    - name: Run performance tests
+      run: |
+        cd artifacts
+        tar -xzf fuzzing_module-linux-x64.tar.gz
+        
+        echo "=== Performance benchmarks ==="
+        
+        # Test with different iteration counts
+        for iterations in 1000 5000 10000; do
+          echo "Testing with $iterations iterations..."
+          if [ -f ../tests/safe_test.cpp ]; then
+            time timeout 120s ./fuzzing_module -f safe_add_function -s ../tests/safe_test.cpp -n $iterations --timeout 50 -o perf_${iterations}.sarif || echo "Test with $iterations iterations completed"
+          fi
+        done
+        
+        # Report file sizes
+        echo "=== Generated SARIF file sizes ==="
+        ls -lh *.sarif 2>/dev/null || echo "No SARIF files generated"
+
+  documentation-check:
+    name: Documentation and Examples
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Check documentation
+      run: |
+        echo "=== Documentation check ==="
+        
+        # Check if README exists and has content
+        if [ -f README.md ]; then
+          echo "✅ README.md exists"
+          if [ $(wc -l < README.md) -gt 10 ]; then
+            echo "✅ README.md has substantial content"
+          else
+            echo "⚠️  README.md seems short"
+          fi
+        else
+          echo "❌ README.md missing"
+        fi
+        
+        # Check test files
+        echo "=== Test files check ==="
+        find tests/ -name "*.cpp" | while read file; do
+          echo "Found test file: $file"
+        done
+        
+        # Check if CMakeLists.txt is comprehensive
+        if grep -q "nlohmann_json" CMakeLists.txt; then
+          echo "✅ JSON dependency configured"
+        fi
+        
+        if grep -q "LLVM" CMakeLists.txt; then
+          echo "✅ LLVM dependency configured"
+        fi

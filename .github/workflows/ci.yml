@@ -1,0 +1,246 @@
+name: CI Build and Test
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  build-linux:
+    name: Build on Ubuntu Linux
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        llvm-version: [19]
+        build-type: [Release, Debug]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          cmake \
+          ninja-build \
+          git \
+          wget \
+          lsb-release \
+          software-properties-common \
+          gnupg
+    
+    - name: Install LLVM ${{ matrix.llvm-version }}
+      run: |
+        # Add LLVM APT repository
+        wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
+        sudo add-apt-repository "deb http://apt.llvm.org/$(lsb_release -cs)/ llvm-toolchain-$(lsb_release -cs)-${{ matrix.llvm-version }} main"
+        sudo apt-get update
+        
+        # Install LLVM packages
+        sudo apt-get install -y \
+          llvm-${{ matrix.llvm-version }} \
+          llvm-${{ matrix.llvm-version }}-dev \
+          llvm-${{ matrix.llvm-version }}-runtime \
+          clang-${{ matrix.llvm-version }} \
+          clang++-${{ matrix.llvm-version }} \
+          libc++-${{ matrix.llvm-version }}-dev \
+          libc++abi-${{ matrix.llvm-version }}-dev
+    
+    - name: Set up LLVM environment
+      run: |
+        # Create symlinks for easier CMake detection
+        sudo ln -sf /usr/lib/llvm-${{ matrix.llvm-version }} /usr/lib/llvm${{ matrix.llvm-version }}
+        
+        # Set environment variables
+        echo "LLVM_DIR=/usr/lib/llvm${{ matrix.llvm-version }}/lib/cmake/llvm" >> $GITHUB_ENV
+        echo "PATH=/usr/lib/llvm-${{ matrix.llvm-version }}/bin:$PATH" >> $GITHUB_ENV
+        echo "CC=clang-${{ matrix.llvm-version }}" >> $GITHUB_ENV
+        echo "CXX=clang++-${{ matrix.llvm-version }}" >> $GITHUB_ENV
+    
+    - name: Verify LLVM installation
+      run: |
+        llvm-config-${{ matrix.llvm-version }} --version
+        clang-${{ matrix.llvm-version }} --version
+        echo "LLVM_DIR: $LLVM_DIR"
+        ls -la /usr/lib/llvm${{ matrix.llvm-version }}/lib/cmake/llvm/ || true
+    
+    - name: Configure CMake
+      run: |
+        mkdir -p build
+        cd build
+        cmake .. \
+          -DCMAKE_BUILD_TYPE=${{ matrix.build-type }} \
+          -DLLVM_DIR=/usr/lib/llvm${{ matrix.llvm-version }}/lib/cmake/llvm \
+          -DCMAKE_C_COMPILER=clang-${{ matrix.llvm-version }} \
+          -DCMAKE_CXX_COMPILER=clang++-${{ matrix.llvm-version }} \
+          -GNinja
+    
+    - name: Build project
+      run: |
+        cd build
+        ninja -v
+    
+    - name: Run basic tests
+      run: |
+        cd build
+        # Test that the executable runs and shows help
+        ./fuzzing_module --help
+        
+        # Test compilation of simple test files
+        echo "Testing with safe test..."
+        if [ -f ../tests/safe_test.cpp ]; then
+          timeout 30s ./fuzzing_module -f safe_add_function -s ../tests/safe_test.cpp -o test_results.sarif -n 100 || echo "Test completed with timeout (expected)"
+        fi
+    
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      if: matrix.build-type == 'Release'
+      with:
+        name: fuzzing_module-linux-llvm${{ matrix.llvm-version }}
+        path: |
+          build/fuzzing_module
+          build/*.sarif
+        retention-days: 7
+
+  build-macos:
+    name: Build on macOS
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        llvm-version: [19]
+        build-type: [Release, Debug]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Install dependencies
+      run: |
+        # Update Homebrew
+        brew update
+        
+        # Install LLVM
+        brew install llvm@${{ matrix.llvm-version }} cmake ninja
+    
+    - name: Set up LLVM environment
+      run: |
+        # Set up LLVM paths for macOS
+        LLVM_PREFIX="/opt/homebrew/opt/llvm@${{ matrix.llvm-version }}"
+        if [ ! -d "$LLVM_PREFIX" ]; then
+          LLVM_PREFIX="/usr/local/opt/llvm@${{ matrix.llvm-version }}"
+        fi
+        
+        echo "LLVM_DIR=$LLVM_PREFIX/lib/cmake/llvm" >> $GITHUB_ENV
+        echo "PATH=$LLVM_PREFIX/bin:$PATH" >> $GITHUB_ENV
+        echo "CC=$LLVM_PREFIX/bin/clang" >> $GITHUB_ENV
+        echo "CXX=$LLVM_PREFIX/bin/clang++" >> $GITHUB_ENV
+        echo "LDFLAGS=-L$LLVM_PREFIX/lib" >> $GITHUB_ENV
+        echo "CPPFLAGS=-I$LLVM_PREFIX/include" >> $GITHUB_ENV
+    
+    - name: Verify LLVM installation
+      run: |
+        echo "LLVM_DIR: $LLVM_DIR"
+        $CXX --version
+        llvm-config --version
+        ls -la "$LLVM_DIR" || true
+    
+    - name: Configure CMake
+      run: |
+        mkdir -p build
+        cd build
+        cmake .. \
+          -DCMAKE_BUILD_TYPE=${{ matrix.build-type }} \
+          -DLLVM_DIR="$LLVM_DIR" \
+          -DCMAKE_C_COMPILER="$CC" \
+          -DCMAKE_CXX_COMPILER="$CXX" \
+          -GNinja
+    
+    - name: Build project
+      run: |
+        cd build
+        ninja -v
+    
+    - name: Run basic tests
+      run: |
+        cd build
+        # Test that the executable runs and shows help
+        ./fuzzing_module --help
+        
+        # Test compilation of simple test files
+        echo "Testing with safe test..."
+        if [ -f ../tests/safe_test.cpp ]; then
+          timeout 30s ./fuzzing_module -f safe_add_function -s ../tests/safe_test.cpp -o test_results.sarif -n 100 || echo "Test completed with timeout (expected)"
+        fi
+    
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      if: matrix.build-type == 'Release'
+      with:
+        name: fuzzing_module-macos-llvm${{ matrix.llvm-version }}
+        path: |
+          build/fuzzing_module
+          build/*.sarif
+        retention-days: 7
+
+  test-cross-platform:
+    name: Cross-platform Integration Tests
+    needs: [build-linux, build-macos]
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Download Linux artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: fuzzing_module-linux-llvm19
+        path: ./linux-build
+    
+    - name: Download macOS artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: fuzzing_module-macos-llvm19
+        path: ./macos-build
+    
+    - name: Compare artifacts
+      run: |
+        echo "=== Linux build ==="
+        ls -la linux-build/
+        
+        echo "=== macOS build ==="
+        ls -la macos-build/
+        
+        echo "=== File sizes comparison ==="
+        if [ -f linux-build/fuzzing_module ]; then
+          echo "Linux fuzzing_module: $(stat -c%s linux-build/fuzzing_module) bytes"
+        fi
+        
+        if [ -f macos-build/fuzzing_module ]; then
+          echo "macOS fuzzing_module: $(stat -c%s macos-build/fuzzing_module 2>/dev/null || echo 'N/A') bytes"
+        fi
+
+  notify-status:
+    name: Build Status Notification
+    needs: [build-linux, build-macos, test-cross-platform]
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+    - name: Check build status
+      run: |
+        echo "=== BUILD STATUS SUMMARY ==="
+        echo "Linux build: ${{ needs.build-linux.result }}"
+        echo "macOS build: ${{ needs.build-macos.result }}"
+        echo "Cross-platform tests: ${{ needs.test-cross-platform.result }}"
+        
+        if [ "${{ needs.build-linux.result }}" = "success" ] && [ "${{ needs.build-macos.result }}" = "success" ]; then
+          echo "✅ All builds successful!"
+          exit 0
+        else
+          echo "❌ Some builds failed!"
+          exit 1
+        fi

@@ -1,5 +1,58 @@
-build
-*.ll
+# Build directories
+build/
+build-*/
+cmake-build-*/
+
+# Compiled files
 *.o
 *.so
 *.a
+*.exe
+*.dll
+*.dylib
+
+# LLVM IR files
+*.ll
+*.bc
+
+# Generated files
+*.sarif
+*.json
+compile_commands.json
+
+# Temporary files
+/tmp/
+*.tmp
+*.temp
+*~
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# CMake generated files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+CTestTestfile.cmake
+
+# Package managers
+.conan/
+vcpkg_installed/
+
+# OS specific
+Thumbs.db
+.Trash-*
+
+# Test artifacts
+test_results/
+coverage/
+*.log
+
+# Platform specific executables
+fuzzing_module
+fuzzing_module.exe

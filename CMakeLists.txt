@@ -4,12 +4,31 @@ project(FuzzingModule)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Force LLVM 19 paths
-set(LLVM_DIR "/usr/lib/llvm19/lib/cmake/llvm")
-set(CMAKE_PREFIX_PATH "/usr/lib/llvm19/lib/cmake/llvm;${CMAKE_PREFIX_PATH}")
+# Platform-specific LLVM paths
+if(APPLE)
+    # macOS with Homebrew
+    if(EXISTS "/opt/homebrew/opt/llvm@19")
+        set(LLVM_DIR "/opt/homebrew/opt/llvm@19/lib/cmake/llvm")
+    elseif(EXISTS "/usr/local/opt/llvm@19")
+        set(LLVM_DIR "/usr/local/opt/llvm@19/lib/cmake/llvm")
+    endif()
+elseif(UNIX AND NOT APPLE)
+    # Linux paths
+    if(EXISTS "/usr/lib/llvm19/lib/cmake/llvm")
+        set(LLVM_DIR "/usr/lib/llvm19/lib/cmake/llvm")
+    elseif(EXISTS "/usr/lib/llvm-19/lib/cmake/llvm")
+        set(LLVM_DIR "/usr/lib/llvm-19/lib/cmake/llvm")
+    endif()
+endif()
+
+# Set CMAKE_PREFIX_PATH if LLVM_DIR is found
+if(LLVM_DIR)
+    set(CMAKE_PREFIX_PATH "${LLVM_DIR};${CMAKE_PREFIX_PATH}")
+    message(STATUS "Using LLVM_DIR: ${LLVM_DIR}")
+endif()
 
 # Find LLVM 19 (accept any 19.x version)
-find_package(LLVM 19.1 REQUIRED CONFIG PATHS /usr/lib/llvm19/lib/cmake/llvm NO_DEFAULT_PATH)
+find_package(LLVM 19.1 REQUIRED CONFIG)
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
 
