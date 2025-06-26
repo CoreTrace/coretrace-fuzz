@@ -2,9 +2,9 @@ name: CI Build and Test
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ main, 1-add-fuzzing_base ]
   pull_request:
-    branches: [ main, develop ]
+    branches: [ main, 1-add-fuzzing_base ]
 
 jobs:
   build-linux:
