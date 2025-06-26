@@ -139,23 +139,61 @@ jobs:
         echo "CXX=$LLVM_PREFIX/bin/clang++" >> $GITHUB_ENV
         echo "LDFLAGS=-L$LLVM_PREFIX/lib" >> $GITHUB_ENV
         echo "CPPFLAGS=-I$LLVM_PREFIX/include" >> $GITHUB_ENV
+        
+        # Also set for current shell
+        export PATH="$LLVM_PREFIX/bin:$PATH"
+        
+        # Verify llvm-config is available
+        if [ -f "$LLVM_PREFIX/bin/llvm-config" ]; then
+          echo "LLVM_CONFIG_PATH=$LLVM_PREFIX/bin/llvm-config" >> $GITHUB_ENV
+        fi
     
     - name: Verify LLVM installation
       run: |
         echo "LLVM_DIR: $LLVM_DIR"
+        echo "PATH: $PATH"
+        echo "CC: $CC"
+        echo "CXX: $CXX"
+        
+        # Test compilers
         $CXX --version
-        llvm-config --version
-        ls -la "$LLVM_DIR" || true
+        
+        # Test llvm-config
+        if command -v llvm-config &> /dev/null; then
+          echo "llvm-config version: $(llvm-config --version)"
+          echo "llvm-config --libs: $(llvm-config --libs all 2>/dev/null || echo 'Failed')"
+        else
+          echo "llvm-config not found in PATH"
+        fi
+        
+        # List LLVM directory contents
+        echo "LLVM CMake directory contents:"
+        ls -la "$LLVM_DIR" || echo "LLVM_DIR not found: $LLVM_DIR"
+        
+        # Test basic compilation
+        echo '#include <iostream>' > test.cpp
+        echo 'int main() { return 0; }' >> test.cpp
+        $CXX -std=c++17 test.cpp -o test_executable || echo "Basic compilation failed"
+        rm -f test.cpp test_executable
     
     - name: Configure CMake
       run: |
         mkdir -p build
         cd build
+        
+        echo "=== CMake Configuration Debug Info ==="
+        echo "LLVM_DIR: $LLVM_DIR"
+        echo "CC: $CC"
+        echo "CXX: $CXX"
+        echo "Current directory: $(pwd)"
+        echo "Parent directory contents: $(ls -la ..)"
+        
         cmake .. \
           -DCMAKE_BUILD_TYPE=${{ matrix.build-type }} \
           -DLLVM_DIR="$LLVM_DIR" \
           -DCMAKE_C_COMPILER="$CC" \
           -DCMAKE_CXX_COMPILER="$CXX" \
+          -DCMAKE_VERBOSE_MAKEFILE=ON \
           -GNinja
     
     - name: Build project
