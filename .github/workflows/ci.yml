@@ -96,10 +96,14 @@ jobs:
         fi
 
     - name: Run comprehensive functionality tests (Linux)
+      env:
+        CI: true
+        GITHUB_ACTIONS: true
       run: |
         # Make test script executable and run it from project root
         chmod +x test_all_functionality.sh
         echo "Running comprehensive test suite on Linux..."
+        echo "Environment: CI=$CI, GITHUB_ACTIONS=$GITHUB_ACTIONS, Platform=$(uname -s)"
         ./test_all_functionality.sh
         
         echo "=== Test Results Summary ==="
@@ -230,10 +234,14 @@ jobs:
         fi
 
     - name: Run comprehensive functionality tests (macOS)
+      env:
+        CI: true
+        GITHUB_ACTIONS: true
       run: |
         # Make test script executable and run it from project root
         chmod +x test_all_functionality.sh
         echo "Running comprehensive test suite on macOS..."
+        echo "Environment: CI=$CI, GITHUB_ACTIONS=$GITHUB_ACTIONS, Platform=$(uname -s)"
         ./test_all_functionality.sh
         
         echo "=== Test Results Summary ==="
