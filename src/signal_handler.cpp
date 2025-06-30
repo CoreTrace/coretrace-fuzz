@@ -1,6 +1,7 @@
 #include "signal_handler.h"
 #include <iostream>
 #include <cstring>
+#include <unistd.h>  // For _exit()
 
 std::atomic<bool> SignalHandler::crashed_(false);
 std::atomic<int> SignalHandler::signal_received_(0);
