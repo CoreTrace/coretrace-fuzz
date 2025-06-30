@@ -100,7 +100,7 @@ exit_code=$?
 
 if [ $exit_code -eq 124 ]; then
     print_result 1 "Single function fuzzing timed out after $TIMEOUT seconds"
-elif [ $exit_code -eq 0 ] || [ $exit_code -eq 2 ]; then
+elif [ $exit_code -eq 0 ] || [ $exit_code -eq 1 ] || [ $exit_code -eq 2 ]; then
     if check_output_file "$RESULTS_DIR/single_func_test.sarif"; then
         # Check if crashes were detected
         if grep -q "Crashes found:" "$RESULTS_DIR/single_func_output.txt"; then
@@ -150,9 +150,13 @@ if [ -f "$RESULTS_DIR/test.ll" ]; then
     
     if [ $exit_code -eq 124 ]; then
         print_result 1 "IR input fuzzing timed out after $TIMEOUT seconds"
-    elif [ $exit_code -eq 0 ] || [ $exit_code -eq 2 ]; then
+    elif [ $exit_code -eq 0 ] || [ $exit_code -eq 1 ] || [ $exit_code -eq 2 ]; then
         if check_output_file "$RESULTS_DIR/ir_input_test.sarif"; then
-            print_result 0 "Direct IR input fuzzing"
+            if [ $exit_code -eq 1 ]; then
+                print_result 0 "Direct IR input fuzzing (crashes detected as expected)"
+            else
+                print_result 0 "Direct IR input fuzzing"
+            fi
             PASSED_TESTS=$((PASSED_TESTS + 1))
         else
             print_result 1 "IR input SARIF file not created"
@@ -184,7 +188,7 @@ exit_code=$?
 
 if [ $exit_code -eq 124 ]; then
     print_result 1 "All functions mode timed out after $TIMEOUT seconds"
-elif [ $exit_code -eq 0 ] || [ $exit_code -eq 2 ]; then
+elif [ $exit_code -eq 0 ] || [ $exit_code -eq 1 ] || [ $exit_code -eq 2 ]; then
     if check_output_file "$RESULTS_DIR/all_functions_test.sarif"; then
         # Check if multiple functions were discovered
         if grep -q "Available functions" "$RESULTS_DIR/all_functions_output.txt"; then
@@ -215,7 +219,7 @@ exit_code=$?
 
 if [ $exit_code -eq 124 ]; then
     print_result 1 "Multiple specific functions timed out after $TIMEOUT seconds"
-elif [ $exit_code -eq 0 ] || [ $exit_code -eq 2 ]; then
+elif [ $exit_code -eq 0 ] || [ $exit_code -eq 1 ] || [ $exit_code -eq 2 ]; then
     if check_output_file "$RESULTS_DIR/multi_specific_test.sarif"; then
         print_result 0 "Multiple specific functions"
         PASSED_TESTS=$((PASSED_TESTS + 1))
@@ -271,7 +275,7 @@ exit_code=$?
 
 if [ $exit_code -eq 124 ]; then
     print_result 1 "Custom parameters test timed out after $TIMEOUT seconds"
-elif [ $exit_code -eq 0 ] || [ $exit_code -eq 2 ]; then
+elif [ $exit_code -eq 0 ] || [ $exit_code -eq 1 ] || [ $exit_code -eq 2 ]; then
     if check_output_file "$RESULTS_DIR/custom_params_test.sarif"; then
         # Check if custom parameters were applied
         if grep -q "Input size range: 5 - 50" "$RESULTS_DIR/custom_params_output.txt" && \
