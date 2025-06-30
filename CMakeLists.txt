@@ -34,29 +34,80 @@ message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
 
 # Include LLVM headers
 include_directories(${LLVM_INCLUDE_DIRS})
-separate_arguments(LLVM_DEFINITIONS_LIST NATIVE_COMMAND ${LLVM_DEFINITIONS})
-add_definitions(${LLVM_DEFINITIONS_LIST})
+
+# Handle LLVM definitions safely
+message(STATUS "LLVM_DEFINITIONS: ${LLVM_DEFINITIONS}")
+if(LLVM_DEFINITIONS)
+    # Clean any newlines or problematic characters
+    string(REPLACE "\n" " " LLVM_DEFINITIONS_CLEAN "${LLVM_DEFINITIONS}")
+    string(REPLACE "\r" " " LLVM_DEFINITIONS_CLEAN "${LLVM_DEFINITIONS_CLEAN}")
+    
+    if(NOT "${LLVM_DEFINITIONS_CLEAN}" STREQUAL "")
+        separate_arguments(LLVM_DEFINITIONS_LIST NATIVE_COMMAND ${LLVM_DEFINITIONS_CLEAN})
+        add_definitions(${LLVM_DEFINITIONS_LIST})
+        message(STATUS "Applied LLVM definitions: ${LLVM_DEFINITIONS_LIST}")
+    else()
+        message(STATUS "LLVM_DEFINITIONS is empty after cleaning")
+    endif()
+else()
+    message(STATUS "LLVM_DEFINITIONS is not set")
+endif()
 
 # Get LLVM link flags using llvm-config
-execute_process(
-    COMMAND /usr/lib/llvm19/bin/llvm-config --ldflags --system-libs --libs all
-    OUTPUT_VARIABLE LLVM_LINK_FLAGS
-    OUTPUT_STRIP_TRAILING_WHITESPACE
+set(LLVM_CONFIG_PATHS
+    "llvm-config"
+    "/usr/lib/llvm19/bin/llvm-config"
+    "/usr/lib/llvm-19/bin/llvm-config"
+    "/opt/homebrew/opt/llvm@19/bin/llvm-config"
+    "/usr/local/opt/llvm@19/bin/llvm-config"
 )
-message(STATUS "LLVM Link Flags: ${LLVM_LINK_FLAGS}")
 
-# Parse the link flags into separate arguments and clean whitespace
-string(REPLACE " " ";" LLVM_LINK_FLAGS_LIST ${LLVM_LINK_FLAGS})
-# Remove empty strings from the list
-list(REMOVE_ITEM LLVM_LINK_FLAGS_LIST "")
-# Clean each item
-set(LLVM_CLEAN_FLAGS)
-foreach(flag ${LLVM_LINK_FLAGS_LIST})
-    string(STRIP "${flag}" clean_flag)
-    if(NOT clean_flag STREQUAL "")
-        list(APPEND LLVM_CLEAN_FLAGS ${clean_flag})
+set(LLVM_CONFIG_CMD "")
+foreach(llvm_config_path ${LLVM_CONFIG_PATHS})
+    execute_process(
+        COMMAND which ${llvm_config_path}
+        RESULT_VARIABLE LLVM_CONFIG_RESULT
+        OUTPUT_QUIET
+        ERROR_QUIET
+    )
+    if(LLVM_CONFIG_RESULT EQUAL 0)
+        set(LLVM_CONFIG_CMD ${llvm_config_path})
+        message(STATUS "Found llvm-config at: ${LLVM_CONFIG_CMD}")
+        break()
     endif()
 endforeach()
+
+if(LLVM_CONFIG_CMD)
+    execute_process(
+        COMMAND ${LLVM_CONFIG_CMD} --ldflags --system-libs --libs all
+        OUTPUT_VARIABLE LLVM_LINK_FLAGS
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        RESULT_VARIABLE LLVM_CONFIG_SUCCESS
+    )
+    message(STATUS "LLVM Link Flags: ${LLVM_LINK_FLAGS}")
+    
+    # Parse the link flags into separate arguments and clean whitespace
+    if(LLVM_CONFIG_SUCCESS EQUAL 0 AND LLVM_LINK_FLAGS AND NOT "${LLVM_LINK_FLAGS}" STREQUAL "")
+        string(REPLACE " " ";" LLVM_LINK_FLAGS_LIST ${LLVM_LINK_FLAGS})
+        # Remove empty strings from the list
+        list(REMOVE_ITEM LLVM_LINK_FLAGS_LIST "")
+        # Clean each item
+        set(LLVM_CLEAN_FLAGS)
+        foreach(flag ${LLVM_LINK_FLAGS_LIST})
+            string(STRIP "${flag}" clean_flag)
+            if(NOT clean_flag STREQUAL "")
+                list(APPEND LLVM_CLEAN_FLAGS ${clean_flag})
+            endif()
+        endforeach()
+        message(STATUS "Using LLVM link flags from llvm-config")
+    else()
+        message(WARNING "llvm-config failed or returned empty flags, using LLVM libraries directly")
+        set(LLVM_CLEAN_FLAGS ${LLVM_LIBRARIES})
+    endif()
+else()
+    message(WARNING "llvm-config not found, using LLVM libraries directly")
+    set(LLVM_CLEAN_FLAGS ${LLVM_LIBRARIES})
+endif()
 
 # Find nlohmann/json for SARIF format
 find_package(nlohmann_json QUIET)
@@ -77,6 +128,8 @@ set(SOURCES
     src/signal_handler.cpp
     src/sarif_reporter.cpp
     src/bytecode_transformer.cpp
+    src/cli_parser.cpp
+    src/fuzzing_application.cpp
     src/main.cpp
 )
 
@@ -88,6 +141,8 @@ set(HEADERS
     include/sarif_reporter.h
     include/bytecode_transformer.h
     include/test_result.h
+    include/cli_parser.h
+    include/fuzzing_application.h
 )
 
 # Create executable
