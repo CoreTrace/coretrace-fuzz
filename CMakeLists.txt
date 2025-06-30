@@ -91,22 +91,32 @@ if(LLVM_CONFIG_CMD)
         string(REPLACE " " ";" LLVM_LINK_FLAGS_LIST ${LLVM_LINK_FLAGS})
         # Remove empty strings from the list
         list(REMOVE_ITEM LLVM_LINK_FLAGS_LIST "")
-        # Clean each item
+        
+        # Separate linker options from libraries
         set(LLVM_CLEAN_FLAGS)
+        set(LLVM_LINKER_OPTIONS)
+        
         foreach(flag ${LLVM_LINK_FLAGS_LIST})
             string(STRIP "${flag}" clean_flag)
             if(NOT clean_flag STREQUAL "")
-                list(APPEND LLVM_CLEAN_FLAGS ${clean_flag})
+                # Check if it's a linker option (starts with -Wl, or -L or other non-library flags)
+                if(clean_flag MATCHES "^-Wl," OR clean_flag MATCHES "^-L" OR clean_flag MATCHES "^-framework")
+                    list(APPEND LLVM_LINKER_OPTIONS ${clean_flag})
+                else()
+                    list(APPEND LLVM_CLEAN_FLAGS ${clean_flag})
+                endif()
             endif()
         endforeach()
         message(STATUS "Using LLVM link flags from llvm-config")
     else()
         message(WARNING "llvm-config failed or returned empty flags, using LLVM libraries directly")
         set(LLVM_CLEAN_FLAGS ${LLVM_LIBRARIES})
+        set(LLVM_LINKER_OPTIONS)
     endif()
 else()
     message(WARNING "llvm-config not found, using LLVM libraries directly")
     set(LLVM_CLEAN_FLAGS ${LLVM_LIBRARIES})
+    set(LLVM_LINKER_OPTIONS)
 endif()
 
 # Find nlohmann/json for SARIF format
@@ -153,6 +163,11 @@ target_include_directories(fuzzing_module PRIVATE include)
 
 # Link libraries
 target_link_libraries(fuzzing_module ${LLVM_CLEAN_FLAGS} nlohmann_json::nlohmann_json pthread)
+
+# Add linker options separately for macOS compatibility
+if(LLVM_LINKER_OPTIONS)
+    target_link_options(fuzzing_module PRIVATE ${LLVM_LINKER_OPTIONS})
+endif()
 
 # Compiler flags
 target_compile_options(fuzzing_module PRIVATE -Wall -Wextra -O2)
