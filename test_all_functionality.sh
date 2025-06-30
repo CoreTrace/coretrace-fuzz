@@ -151,6 +151,22 @@ if [ -f "$RESULTS_DIR/test.ll" ]; then
     if [ $exit_code -eq 124 ]; then
         print_result 1 "IR input fuzzing timed out after $TIMEOUT seconds"
     elif [ $exit_code -eq 0 ] || [ $exit_code -eq 1 ] || [ $exit_code -eq 2 ]; then
+        # Add a small delay to ensure file system synchronization in CI environments
+        sleep 1
+        
+        # Enhanced debugging for CI
+        echo "Debugging IR test output:"
+        echo "Exit code: $exit_code"
+        echo "Checking for SARIF file: $RESULTS_DIR/ir_input_test.sarif"
+        ls -la "$RESULTS_DIR/ir_input_test.sarif" 2>/dev/null || echo "SARIF file not found"
+        
+        # Check if the fuzzer reported success
+        if grep -q "Results exported successfully" "$RESULTS_DIR/ir_input_output.txt"; then
+            echo "Fuzzer reported successful export"
+        else
+            echo "Fuzzer did not report successful export"
+        fi
+        
         if check_output_file "$RESULTS_DIR/ir_input_test.sarif"; then
             if [ $exit_code -eq 1 ]; then
                 print_result 0 "Direct IR input fuzzing (crashes detected as expected)"
@@ -160,9 +176,17 @@ if [ -f "$RESULTS_DIR/test.ll" ]; then
             PASSED_TESTS=$((PASSED_TESTS + 1))
         else
             print_result 1 "IR input SARIF file not created"
+            echo "Debug info:"
+            echo "- Exit code was: $exit_code"
+            echo "- Fuzzer output (last 10 lines):"
+            tail -10 "$RESULTS_DIR/ir_input_output.txt" 2>/dev/null || echo "No output file"
+            echo "- Files in test_results directory:"
+            ls -la "$RESULTS_DIR/" | grep -E "(sarif|test\.ll)" || echo "No matching files"
         fi
     else
         print_result 1 "IR input fuzzing failed (exit code: $exit_code)"
+        echo "Fuzzer output:"
+        cat "$RESULTS_DIR/ir_input_output.txt" 2>/dev/null || echo "No output file available"
     fi
 else
     print_result 1 "Could not compile source to IR"
