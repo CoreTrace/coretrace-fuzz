@@ -22,6 +22,57 @@ TIMEOUT=30     # 30 second timeout per test
 # Create results directory
 mkdir -p "$RESULTS_DIR"
 
+# Cross-platform timeout function
+# Usage: run_with_timeout <timeout_seconds> <command> [args...]
+run_with_timeout() {
+    local timeout_duration=$1
+    shift
+    
+    # Check if timeout command exists (Linux)
+    if command -v timeout >/dev/null 2>&1; then
+        timeout "$timeout_duration" "$@"
+        return $?
+    fi
+    
+    # Check if gtimeout exists (macOS with coreutils)
+    if command -v gtimeout >/dev/null 2>&1; then
+        gtimeout "$timeout_duration" "$@"
+        return $?
+    fi
+    
+    # Fallback: custom timeout implementation for macOS
+    # Run command in background and kill if it takes too long
+    "$@" &
+    local cmd_pid=$!
+    
+    # Start a timeout process in background
+    (
+        sleep "$timeout_duration"
+        if kill -0 "$cmd_pid" 2>/dev/null; then
+            kill -TERM "$cmd_pid" 2>/dev/null
+            sleep 2
+            if kill -0 "$cmd_pid" 2>/dev/null; then
+                kill -KILL "$cmd_pid" 2>/dev/null
+            fi
+        fi
+    ) &
+    local timeout_pid=$!
+    
+    # Wait for the command to complete
+    local exit_code=0
+    if wait "$cmd_pid" 2>/dev/null; then
+        exit_code=$?
+    else
+        exit_code=124  # Standard timeout exit code
+    fi
+    
+    # Clean up timeout process
+    kill "$timeout_pid" 2>/dev/null || true
+    wait "$timeout_pid" 2>/dev/null || true
+    
+    return $exit_code
+}
+
 # Function to print test headers
 print_test() {
     echo -e "${BLUE}=================================${NC}"
@@ -91,9 +142,9 @@ fi
 print_test "TEST 2: Single Function Fuzzing from C++ Source"
 TOTAL_TESTS=$((TOTAL_TESTS + 1))
 
-echo "Running: timeout $TIMEOUT $FUZZER -s $TEST_DIR/vulnerable_test.cpp -f vulnerable_function --iterations $ITERATIONS"
+echo "Running: run_with_timeout $TIMEOUT $FUZZER -s $TEST_DIR/vulnerable_test.cpp -f vulnerable_function --iterations $ITERATIONS"
 
-timeout $TIMEOUT $FUZZER -s "$TEST_DIR/vulnerable_test.cpp" -f "vulnerable_function" \
+run_with_timeout $TIMEOUT $FUZZER -s "$TEST_DIR/vulnerable_test.cpp" -f "vulnerable_function" \
     --iterations $ITERATIONS -o "$RESULTS_DIR/single_func_test.sarif" \
     > "$RESULTS_DIR/single_func_output.txt" 2>&1
 exit_code=$?
@@ -153,9 +204,9 @@ if [ -f "$RESULTS_DIR/test.ll" ]; then
             echo "Warning: function_wrapper.cpp not found, IR test may fail"
         fi
     fi
-    echo "Running: timeout $TIMEOUT $FUZZER -i $RESULTS_DIR/test.ll -f vulnerable_function --iterations $ITERATIONS"
+    echo "Running: run_with_timeout $TIMEOUT $FUZZER -i $RESULTS_DIR/test.ll -f vulnerable_function --iterations $ITERATIONS"
     
-    timeout $TIMEOUT $FUZZER -i "$RESULTS_DIR/test.ll" -f "vulnerable_function" \
+    run_with_timeout $TIMEOUT $FUZZER -i "$RESULTS_DIR/test.ll" -f "vulnerable_function" \
         -n $ITERATIONS -o "$RESULTS_DIR/ir_input_test.sarif" \
         > "$RESULTS_DIR/ir_input_output.txt" 2>&1
     exit_code=$?
@@ -215,9 +266,9 @@ fi
 print_test "TEST 4: All Functions Discovery and Fuzzing"
 TOTAL_TESTS=$((TOTAL_TESTS + 1))
 
-echo "Running: timeout $TIMEOUT $FUZZER -s $TEST_DIR/multi_function_test.cpp --all-functions -n $ITERATIONS"
+echo "Running: run_with_timeout $TIMEOUT $FUZZER -s $TEST_DIR/multi_function_test.cpp --all-functions -n $ITERATIONS"
 
-timeout $TIMEOUT $FUZZER -s "$TEST_DIR/multi_function_test.cpp" --all-functions \
+run_with_timeout $TIMEOUT $FUZZER -s "$TEST_DIR/multi_function_test.cpp" --all-functions \
     -n $ITERATIONS -o "$RESULTS_DIR/all_functions_test.sarif" \
     > "$RESULTS_DIR/all_functions_output.txt" 2>&1
 exit_code=$?
@@ -247,7 +298,7 @@ fi
 print_test "TEST 5: Multiple Specific Functions"
 TOTAL_TESTS=$((TOTAL_TESTS + 1))
 
-timeout $TIMEOUT $FUZZER -s "$TEST_DIR/multi_function_test.cpp" \
+run_with_timeout $TIMEOUT $FUZZER -s "$TEST_DIR/multi_function_test.cpp" \
     --functions "vulnerable_strcpy,array_overflow,safe_function" \
     -n $ITERATIONS -o "$RESULTS_DIR/multi_specific_test.sarif" \
     > "$RESULTS_DIR/multi_specific_output.txt" 2>&1
@@ -272,7 +323,7 @@ fi
 print_test "TEST 6: Safe Code Testing (No Crashes Expected)"
 TOTAL_TESTS=$((TOTAL_TESTS + 1))
 
-timeout $TIMEOUT $FUZZER -s "$TEST_DIR/completely_safe.cpp" --all-functions \
+run_with_timeout $TIMEOUT $FUZZER -s "$TEST_DIR/completely_safe.cpp" --all-functions \
     -n $ITERATIONS -o "$RESULTS_DIR/safe_code_test.sarif" \
     > "$RESULTS_DIR/safe_code_output.txt" 2>&1
 exit_code=$?
@@ -303,7 +354,7 @@ fi
 print_test "TEST 7: Custom Fuzzing Parameters"
 TOTAL_TESTS=$((TOTAL_TESTS + 1))
 
-timeout $TIMEOUT $FUZZER -s "$TEST_DIR/vulnerable_test.cpp" -f "vulnerable_function" \
+run_with_timeout $TIMEOUT $FUZZER -s "$TEST_DIR/vulnerable_test.cpp" -f "vulnerable_function" \
     --iterations 25 --min-size 5 --max-size 50 --timeout 500 \
     -o "$RESULTS_DIR/custom_params_test.sarif" \
     > "$RESULTS_DIR/custom_params_output.txt" 2>&1
