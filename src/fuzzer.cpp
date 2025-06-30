@@ -276,7 +276,7 @@ const std::vector<TestResult>& Fuzzer::getCrashes() const {
     return crashes_;
 }
 
-bool Fuzzer::exportResults(const std::string& output_path) {
+bool Fuzzer::exportResults(const std::string& output_path) const {
     return reporter_->exportToFile(output_path);
 }
 

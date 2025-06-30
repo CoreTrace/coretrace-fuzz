@@ -40,7 +40,7 @@ public:
     const std::vector<TestResult>& getCrashes() const;
     
     // Export results to SARIF format
-    bool exportResults(const std::string& output_path);
+    bool exportResults(const std::string& output_path) const;
 
 private:
     std::unique_ptr<MemoryExecutor> executor_;
