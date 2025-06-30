@@ -88,9 +88,8 @@ if(LLVM_CONFIG_CMD)
     
     # Parse the link flags into separate arguments and clean whitespace
     if(LLVM_CONFIG_SUCCESS EQUAL 0 AND LLVM_LINK_FLAGS AND NOT "${LLVM_LINK_FLAGS}" STREQUAL "")
-        string(REPLACE " " ";" LLVM_LINK_FLAGS_LIST ${LLVM_LINK_FLAGS})
-        # Remove empty strings from the list
-        list(REMOVE_ITEM LLVM_LINK_FLAGS_LIST "")
+        # Use separate_arguments to properly handle quoted arguments and spaces
+        separate_arguments(LLVM_LINK_FLAGS_LIST NATIVE_COMMAND "${LLVM_LINK_FLAGS}")
         
         # Separate linker options from libraries
         set(LLVM_CLEAN_FLAGS)
@@ -100,13 +99,27 @@ if(LLVM_CONFIG_CMD)
             string(STRIP "${flag}" clean_flag)
             if(NOT clean_flag STREQUAL "")
                 # Check if it's a linker option (starts with -Wl, or -L or other non-library flags)
-                if(clean_flag MATCHES "^-Wl," OR clean_flag MATCHES "^-L" OR clean_flag MATCHES "^-framework")
+                if(clean_flag MATCHES "^-Wl," OR clean_flag MATCHES "^-L" OR clean_flag MATCHES "^-framework" OR clean_flag MATCHES "^-rpath" OR clean_flag MATCHES "^-headerpad")
                     list(APPEND LLVM_LINKER_OPTIONS ${clean_flag})
+                    message(STATUS "Linker option: ${clean_flag}")
+                # Library flags (starts with -l)
+                elseif(clean_flag MATCHES "^-l")
+                    list(APPEND LLVM_CLEAN_FLAGS ${clean_flag})
+                    message(STATUS "Library: ${clean_flag}")
+                # Other compiler/linker flags (starts with -)
+                elseif(clean_flag MATCHES "^-")
+                    list(APPEND LLVM_LINKER_OPTIONS ${clean_flag})
+                    message(STATUS "Other flag: ${clean_flag}")
+                # Full library paths or other items
                 else()
                     list(APPEND LLVM_CLEAN_FLAGS ${clean_flag})
+                    message(STATUS "Library path/other: ${clean_flag}")
                 endif()
             endif()
         endforeach()
+        
+        message(STATUS "LLVM Linker Options: ${LLVM_LINKER_OPTIONS}")
+        message(STATUS "LLVM Libraries: ${LLVM_CLEAN_FLAGS}")
         message(STATUS "Using LLVM link flags from llvm-config")
     else()
         message(WARNING "llvm-config failed or returned empty flags, using LLVM libraries directly")
