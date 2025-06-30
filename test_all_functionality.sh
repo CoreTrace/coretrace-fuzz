@@ -141,6 +141,18 @@ echo "Using compiler: $CLANG_CXX"
 $CLANG_CXX -S -emit-llvm -O0 "$TEST_DIR/vulnerable_test.cpp" -o "$RESULTS_DIR/test.ll" 2>"$RESULTS_DIR/compilation_output.txt"
 
 if [ -f "$RESULTS_DIR/test.ll" ]; then
+    # Ensure function_wrapper.cpp exists for IR compilation
+    if [ ! -f "$RESULTS_DIR/function_wrapper.cpp" ]; then
+        if [ -f "$TEST_DIR/function_wrapper.cpp" ]; then
+            cp "$TEST_DIR/function_wrapper.cpp" "$RESULTS_DIR/"
+            echo "Copied function_wrapper.cpp from tests/ to test_results/"
+        elif [ -f "function_wrapper.cpp" ]; then
+            cp "function_wrapper.cpp" "$RESULTS_DIR/"
+            echo "Copied function_wrapper.cpp from project root to test_results/"
+        else
+            echo "Warning: function_wrapper.cpp not found, IR test may fail"
+        fi
+    fi
     echo "Running: timeout $TIMEOUT $FUZZER -i $RESULTS_DIR/test.ll -f vulnerable_function --iterations $ITERATIONS"
     
     timeout $TIMEOUT $FUZZER -i "$RESULTS_DIR/test.ll" -f "vulnerable_function" \
