@@ -63,6 +63,19 @@ jobs:
     
     - name: Run comprehensive tests
       run: |
+        # Run comprehensive test suite
+        chmod +x test_all_functionality.sh
+        echo "Running full test suite for release validation..."
+        ./test_all_functionality.sh
+        
+        echo "=== Release Test Results Summary ==="
+        if [ -f test_results_summary.txt ]; then
+          cat test_results_summary.txt
+        else
+          echo "No test summary file found"
+        fi
+        
+        # Also run the individual tests from build directory
         cd build
         
         echo "=== Basic functionality test ==="
@@ -144,7 +157,10 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: ${{ matrix.artifact-name }}
-        path: build/${{ matrix.artifact-name }}.tar.gz
+        path: |
+          build/${{ matrix.artifact-name }}.tar.gz
+          test_results/
+          test_results_summary.txt
         retention-days: 30
     
     - name: Upload to release (if release event)

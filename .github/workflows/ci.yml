@@ -94,6 +94,20 @@ jobs:
         if [ -f ../tests/safe_test.cpp ]; then
           timeout 30s ./fuzzing_module -f safe_add_function -s ../tests/safe_test.cpp -o test_results.sarif -n 100 || echo "Test completed with timeout (expected)"
         fi
+
+    - name: Run comprehensive functionality tests (Linux)
+      run: |
+        # Make test script executable and run it from project root
+        chmod +x test_all_functionality.sh
+        echo "Running comprehensive test suite on Linux..."
+        ./test_all_functionality.sh
+        
+        echo "=== Test Results Summary ==="
+        if [ -f test_results_summary.txt ]; then
+          cat test_results_summary.txt
+        else
+          echo "No test summary file found"
+        fi
     
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4
@@ -103,6 +117,8 @@ jobs:
         path: |
           build/fuzzing_module
           build/*.sarif
+          test_results/
+          test_results_summary.txt
         retention-days: 7
 
   build-macos:
@@ -212,6 +228,20 @@ jobs:
         if [ -f ../tests/safe_test.cpp ]; then
           timeout 30s ./fuzzing_module -f safe_add_function -s ../tests/safe_test.cpp -o test_results.sarif -n 100 || echo "Test completed with timeout (expected)"
         fi
+
+    - name: Run comprehensive functionality tests (macOS)
+      run: |
+        # Make test script executable and run it from project root
+        chmod +x test_all_functionality.sh
+        echo "Running comprehensive test suite on macOS..."
+        ./test_all_functionality.sh
+        
+        echo "=== Test Results Summary ==="
+        if [ -f test_results_summary.txt ]; then
+          cat test_results_summary.txt
+        else
+          echo "No test summary file found"
+        fi
     
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4
@@ -221,6 +251,8 @@ jobs:
         path: |
           build/fuzzing_module
           build/*.sarif
+          test_results/
+          test_results_summary.txt
         retention-days: 7
 
   test-cross-platform:
