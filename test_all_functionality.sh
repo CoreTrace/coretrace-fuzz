@@ -126,7 +126,19 @@ print_test "TEST 3: Direct LLVM IR Input (option -i)"
 TOTAL_TESTS=$((TOTAL_TESTS + 1))
 
 # First compile to IR
-clang++ -S -emit-llvm -O0 "$TEST_DIR/vulnerable_test.cpp" -o "$RESULTS_DIR/test.ll" 2>/dev/null
+# Use clang++-19 if available, otherwise fall back to clang++
+if command -v clang++-19 &> /dev/null; then
+    CLANG_CXX="clang++-19"
+elif command -v clang++ &> /dev/null; then
+    CLANG_CXX="clang++"
+else
+    echo "No suitable C++ compiler found"
+    print_result 1 "Could not find clang++ compiler"
+    exit 1
+fi
+
+echo "Using compiler: $CLANG_CXX"
+$CLANG_CXX -S -emit-llvm -O0 "$TEST_DIR/vulnerable_test.cpp" -o "$RESULTS_DIR/test.ll" 2>"$RESULTS_DIR/compilation_output.txt"
 
 if [ -f "$RESULTS_DIR/test.ll" ]; then
     echo "Running: timeout $TIMEOUT $FUZZER -i $RESULTS_DIR/test.ll -f vulnerable_function --iterations $ITERATIONS"
@@ -150,6 +162,11 @@ if [ -f "$RESULTS_DIR/test.ll" ]; then
     fi
 else
     print_result 1 "Could not compile source to IR"
+    echo "Compilation output:"
+    cat "$RESULTS_DIR/compilation_output.txt" 2>/dev/null || echo "No compilation output available"
+    echo "Available compilers:"
+    which clang++ 2>/dev/null || echo "clang++ not found"
+    which clang++-19 2>/dev/null || echo "clang++-19 not found"
 fi
 
 ###########################################
