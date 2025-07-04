@@ -10,6 +10,8 @@
 #include <fstream>
 #include <cstdlib>
 #include <sys/stat.h>
+#include <dlfcn.h>
+#include <vector>
 
 MemoryExecutor::MemoryExecutor() 
     : ready_(false) {
@@ -97,9 +99,9 @@ bool MemoryExecutor::compileToExecutable(const std::string& source_path) {
     std::vector<std::string> compile_strategies;
     
     if (using_dynamic_wrapper) {
-        // If using dynamic wrapper, prioritize strategies that work with dlopen/dlsym
+        // If using dynamic wrapper, use clang directly for executable compilation
         if (is_c_file) {
-            // For C files with dynamic wrapper
+            // For C files with dynamic wrapper, use clang directly
             compile_strategies.push_back("clang -O0 -g -w " + wrapper_path + " " + source_path + " -o " + executable_path_ + " -ldl -rdynamic");
         } else {
             // For C++ files with dynamic wrapper

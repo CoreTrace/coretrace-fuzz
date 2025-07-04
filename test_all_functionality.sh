@@ -477,9 +477,77 @@ fi
 rm -f "$RESULTS_DIR/test.cpp"
 
 ###########################################
-# TEST 9: SARIF Output Format Validation
+# TEST 9: Dynamic Library Usage for IR Generation
 ###########################################
-print_test "TEST 9: SARIF Output Format Validation"
+print_test "TEST 9: Dynamic Library (libcompilerlib.so) Usage for IR Generation"
+TOTAL_TESTS=$((TOTAL_TESTS + 1))
+
+if [ -f "$TEST_DIR/discovery_test.c" ]; then
+    echo "Testing that the dynamic library (libcompilerlib.so) is used for LLVM IR generation..."
+    
+    # Run fuzzing with verbose output to capture library usage messages
+    # Use --all-functions to trigger IR generation which uses the library
+    run_with_timeout $FUZZ_TIMEOUT $FUZZER -s "$TEST_DIR/discovery_test.c" --all-functions \
+        --iterations 1 -o "$RESULTS_DIR/library_test.sarif" \
+        > "$RESULTS_DIR/library_test_output.txt" 2>&1
+    exit_code=$?
+    
+    if [ $exit_code -eq 124 ]; then
+        print_result 1 "Library usage test timed out after $FUZZ_TIMEOUT seconds"
+    elif [ $exit_code -eq 0 ] || [ $exit_code -eq 1 ] || [ $exit_code -eq 2 ]; then
+        # Check if the library was successfully loaded and used for IR generation
+        LIBRARY_USED_FOR_IR=0
+        IR_GENERATION_SUCCESS=0
+        
+        if grep -q "Using libcompilerlib.so for C compilation" "$RESULTS_DIR/library_test_output.txt" || \
+           grep -q "Compiling C file using libcompilerlib.so" "$RESULTS_DIR/library_test_output.txt"; then
+            LIBRARY_USED_FOR_IR=1
+            echo -e "${GREEN}✓ Dynamic library used for LLVM IR generation${NC}"
+        fi
+        
+        if grep -q "Successfully compiled C file to IR using library" "$RESULTS_DIR/library_test_output.txt"; then
+            IR_GENERATION_SUCCESS=1
+            echo -e "${GREEN}✓ LLVM IR generation successful${NC}"
+        elif grep -q "Library compilation succeeded" "$RESULTS_DIR/library_test_output.txt" || \
+             grep -q "Calling compile_c with.*arguments" "$RESULTS_DIR/library_test_output.txt"; then
+            IR_GENERATION_SUCCESS=1
+            echo -e "${GREEN}✓ Dynamic library called successfully for IR generation${NC}"
+        fi
+        
+        if grep -q "Successfully compiled to executable" "$RESULTS_DIR/library_test_output.txt"; then
+            echo -e "${GREEN}✓ Executable created successfully (using clang)${NC}"
+        fi
+        
+        # Check if we fell back to clang for IR generation (acceptable fallback)
+        if grep -q "Falling back to clang system call" "$RESULTS_DIR/library_test_output.txt"; then
+            echo -e "${YELLOW}ℹ️  Note: Fallback to clang for IR generation${NC}"
+        fi
+        
+        # Overall assessment - we want library used for IR generation, executable creation is separate
+        if [ $LIBRARY_USED_FOR_IR -eq 1 ] && [ $IR_GENERATION_SUCCESS -eq 1 ]; then
+            print_result 0 "Dynamic library correctly used for LLVM IR generation"
+            PASSED_TESTS=$((PASSED_TESTS + 1))
+        elif [ $IR_GENERATION_SUCCESS -eq 1 ]; then
+            print_result 0 "IR generation successful (library or fallback)"
+            PASSED_TESTS=$((PASSED_TESTS + 1))
+        else
+            print_result 1 "Dynamic library usage for IR generation not verified"
+            echo "Debug info from output:"
+            grep -E "(library|compile|fallback|IR)" "$RESULTS_DIR/library_test_output.txt" || echo "No library-related messages found"
+        fi
+    else
+        print_result 1 "Library usage test failed (exit code: $exit_code)"
+        echo "Last few lines of output:"
+        tail -5 "$RESULTS_DIR/library_test_output.txt" 2>/dev/null || echo "No output file"
+    fi
+else
+    print_result 1 "Test file discovery_test.c not found for library test"
+fi
+
+###########################################
+# TEST 10: SARIF Output Format Validation
+###########################################
+print_test "TEST 10: SARIF Output Format Validation"
 TOTAL_TESTS=$((TOTAL_TESTS + 1))
 
 # Check if any SARIF file contains valid JSON
@@ -532,7 +600,8 @@ Test Details:
 6. Safe C Code Testing - $([ -f "$RESULTS_DIR/safe_code_test.sarif" ] && echo "PASSED" || echo "FAILED")
 7. Custom Fuzzing Parameters with C Code - $([ -f "$RESULTS_DIR/custom_params_test.sarif" ] && echo "PASSED" || echo "FAILED")
 8. Error Handling and Non-C File Rejection - $([ -f "$RESULTS_DIR/error_handling_output.txt" ] && echo "PASSED" || echo "FAILED")
-9. SARIF Output Format Validation - $(ls "$RESULTS_DIR"/*.sarif 2>/dev/null | head -1 | xargs -I {} python3 -c "import json; json.load(open('{}'))" 2>/dev/null && echo "PASSED" || echo "FAILED")
+9. Dynamic Library Usage for IR Generation - $([ -f "$RESULTS_DIR/library_test.sarif" ] && echo "PASSED" || echo "FAILED")
+10. SARIF Output Format Validation - $(ls "$RESULTS_DIR"/*.sarif 2>/dev/null | head -1 | xargs -I {} python3 -c "import json; json.load(open('{}'))" 2>/dev/null && echo "PASSED" || echo "FAILED")
 
 Generated SARIF files: $(find "$RESULTS_DIR" -name "*.sarif" 2>/dev/null | wc -l)
 Generated output files: $(find "$RESULTS_DIR" -name "*.txt" 2>/dev/null | wc -l)

@@ -17,7 +17,8 @@ BytecodeTransformer::~BytecodeTransformer() = default;
 
 bool BytecodeTransformer::transformSourceToIR(const std::string& source_path, 
                                               const std::string& output_path) {
-    // Use compilerlib to transform source to LLVM IR
+    // Use libcompilerlib.so to transform source to LLVM IR (.ll files)
+    // This is the correct usage of compile_c - creating IR, not executables
     return compileWithCompilerLib(source_path, output_path);
 }
 
