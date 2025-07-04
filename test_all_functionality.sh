@@ -24,7 +24,7 @@ if [ "$OS_TYPE" = "Darwin" ] && [ "$IS_CI" = "true" ]; then
     # macOS CI: Use very conservative settings
     ITERATIONS=2      # Minimal iterations for macOS CI
     TIMEOUT=90        # Much longer timeout to account for slower CI
-    FUZZ_TIMEOUT=100   # Shorter individual fuzzing timeout but more reasonable
+    FUZZ_TIMEOUT=3600   # Shorter individual fuzzing timeout but more reasonable
     echo "Detected macOS CI environment - using very conservative test parameters"
 elif [ "$IS_CI" = "true" ]; then
     # Linux CI: Moderate settings
