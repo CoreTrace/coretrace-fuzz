@@ -1,0 +1,11 @@
+ligne crash 
+
+dictionnaire en clé la fonction et l'output associé
+
+expose fuzzing dans .h
+
+dans le fuzzing
+
+quand il import lea fonction il peut utiliser le fuzzing
+
+verision lib -> version non lib (cmake) 

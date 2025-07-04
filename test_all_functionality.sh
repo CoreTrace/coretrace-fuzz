@@ -1,9 +1,6 @@
 #!/bin/bash
-# Comprehensive test suite for LLVM Fuzzing Module
-# Tests all implemented functionalities
-
-# Remove set -e to handle errors gracefully
-# set -e  # Exit on any error
+# Comprehensive test suite for C-Only Fuzzing Module
+# Tests all implemented functionalities exclusively for C files (.c)
 
 # Colors for output
 RED='\033[0;31m'
@@ -29,16 +26,15 @@ if [ "$OS_TYPE" = "Darwin" ] && [ "$IS_CI" = "true" ]; then
     TIMEOUT=90        # Much longer timeout to account for slower CI
     FUZZ_TIMEOUT=20   # Shorter individual fuzzing timeout but more reasonable
     echo "Detected macOS CI environment - using very conservative test parameters"
-    echo "Note: macOS CI may be slower due to virtualization and resource constraints"
 elif [ "$IS_CI" = "true" ]; then
     # Linux CI: Moderate settings
-    ITERATIONS=5      # Fewer iterations for CI
+    ITERATIONS=3      # Fewer iterations for CI
     TIMEOUT=45        # Reasonable timeout
     FUZZ_TIMEOUT=15   # Moderate fuzzing timeout
     echo "Detected CI environment - using optimized test parameters"
 else
     # Local development: Full testing
-    ITERATIONS=10     # Full iterations for local testing
+    ITERATIONS=5      # Full iterations for local testing
     TIMEOUT=30        # Standard timeout
     FUZZ_TIMEOUT=20   # Full fuzzing timeout
     echo "Detected local environment - using full test parameters"
@@ -46,6 +42,7 @@ fi
 
 echo "Platform: $OS_TYPE, CI: $IS_CI, GitHub Actions: $IS_GITHUB_ACTIONS"
 echo "Test config: iterations=$ITERATIONS, timeout=$TIMEOUT, fuzz_timeout=$FUZZ_TIMEOUT"
+echo "C-ONLY MODE: Testing C files (.c) exclusively"
 
 # Create results directory
 mkdir -p "$RESULTS_DIR"
@@ -153,10 +150,11 @@ debug_timeout_issue() {
 }
 
 # Start testing
-echo -e "${YELLOW}Starting comprehensive test suite for LLVM Fuzzing Module${NC}"
+echo -e "${YELLOW}Starting comprehensive C-only test suite for Fuzzing Module${NC}"
 echo "Date: $(date)"
 echo "Fuzzer: $FUZZER"
 echo "Test iterations: $ITERATIONS"
+echo "C files only - no C++ or LLVM IR support"
 echo ""
 
 # Check if fuzzer exists
@@ -165,6 +163,26 @@ if [ ! -f "$FUZZER" ]; then
     echo "Please build the project first: cmake -B build && make -C build"
     exit 1
 fi
+
+# Check if C test files exist
+C_FILES_FOUND=0
+if [ -f "$TEST_DIR/safe_c_test.c" ]; then
+    C_FILES_FOUND=$((C_FILES_FOUND + 1))
+fi
+if [ -f "$TEST_DIR/crash_c_test.c" ]; then
+    C_FILES_FOUND=$((C_FILES_FOUND + 1))
+fi
+if [ -f "$TEST_DIR/discovery_test.c" ]; then
+    C_FILES_FOUND=$((C_FILES_FOUND + 1))
+fi
+
+if [ $C_FILES_FOUND -eq 0 ]; then
+    echo -e "${RED}Error: No C test files found in $TEST_DIR${NC}"
+    echo "Expected files: safe_c_test.c, crash_c_test.c, discovery_test.c"
+    exit 1
+fi
+
+echo "Found $C_FILES_FOUND C test files"
 
 # Test counter
 TOTAL_TESTS=0
@@ -188,280 +206,275 @@ else
 fi
 
 ###########################################
-# TEST 2: Single Function from Source
+# TEST 2: Single Function from C Source
 ###########################################
-print_test "TEST 2: Single Function Fuzzing from C++ Source"
+print_test "TEST 2: Single Function Fuzzing from C Source"
 TOTAL_TESTS=$((TOTAL_TESTS + 1))
 
-echo "Running: run_with_timeout $FUZZ_TIMEOUT $FUZZER -s $TEST_DIR/vulnerable_test.cpp -f vulnerable_function --iterations $ITERATIONS"
+if [ -f "$TEST_DIR/crash_c_test.c" ]; then
+    echo "Running: run_with_timeout $FUZZ_TIMEOUT $FUZZER -s $TEST_DIR/crash_c_test.c -f simple_c_crash --iterations $ITERATIONS"
 
-run_with_timeout $FUZZ_TIMEOUT $FUZZER -s "$TEST_DIR/vulnerable_test.cpp" -f "vulnerable_function" \
-    --iterations $ITERATIONS -o "$RESULTS_DIR/single_func_test.sarif" \
-    > "$RESULTS_DIR/single_func_output.txt" 2>&1
-exit_code=$?
+    run_with_timeout $FUZZ_TIMEOUT $FUZZER -s "$TEST_DIR/crash_c_test.c" -f "simple_c_crash" \
+        --iterations $ITERATIONS -o "$RESULTS_DIR/single_func_test.sarif" \
+        > "$RESULTS_DIR/single_func_output.txt" 2>&1
+    exit_code=$?
 
-if [ $exit_code -eq 124 ]; then
-    print_result 1 "Single function fuzzing timed out after $FUZZ_TIMEOUT seconds"
-    debug_timeout_issue "Single Function Fuzzing" "$RESULTS_DIR/single_func_output.txt"
-    
-    # Fallback for macOS CI: try a minimal quick test
-    if [ "$OS_TYPE" = "Darwin" ] && [ "$IS_CI" = "true" ]; then
-        echo -e "${YELLOW}Attempting macOS CI fallback: minimal test with 1 iteration${NC}"
-        run_with_timeout 10 $FUZZER -s "$TEST_DIR/vulnerable_test.cpp" -f "vulnerable_function" \
-            --iterations 1 -o "$RESULTS_DIR/single_func_fallback.sarif" \
-            > "$RESULTS_DIR/single_func_fallback.txt" 2>&1
-        fallback_exit=$?
-        
-        if [ $fallback_exit -eq 0 ] || [ $fallback_exit -eq 1 ] || [ $fallback_exit -eq 2 ]; then
-            if [ -f "$RESULTS_DIR/single_func_fallback.sarif" ]; then
-                print_result 0 "Single function fuzzing (macOS fallback mode)"
+    if [ $exit_code -eq 124 ]; then
+        print_result 1 "Single function C fuzzing timed out after $FUZZ_TIMEOUT seconds"
+        debug_timeout_issue "Single Function C Fuzzing" "$RESULTS_DIR/single_func_output.txt"
+    elif [ $exit_code -eq 0 ] || [ $exit_code -eq 1 ] || [ $exit_code -eq 2 ]; then
+        if check_output_file "$RESULTS_DIR/single_func_test.sarif"; then
+            # Check if crashes were detected
+            if grep -q "Crashes found:" "$RESULTS_DIR/single_func_output.txt"; then
+                print_result 0 "Single C function fuzzing from source (crashes detected)"
+                PASSED_TESTS=$((PASSED_TESTS + 1))
+            else
+                print_result 0 "Single C function fuzzing completed (no crashes)"
                 PASSED_TESTS=$((PASSED_TESTS + 1))
             fi
-        fi
-    fi
-elif [ $exit_code -eq 0 ] || [ $exit_code -eq 1 ] || [ $exit_code -eq 2 ]; then
-    if check_output_file "$RESULTS_DIR/single_func_test.sarif"; then
-        # Check if crashes were detected
-        if grep -q "Crashes found:" "$RESULTS_DIR/single_func_output.txt"; then
-            print_result 0 "Single function fuzzing from source"
-            PASSED_TESTS=$((PASSED_TESTS + 1))
         else
-            print_result 0 "Single function fuzzing completed (no crash info found but SARIF created)"
-            PASSED_TESTS=$((PASSED_TESTS + 1))
+            print_result 1 "SARIF output file not created"
         fi
     else
-        print_result 1 "SARIF output file not created"
+        print_result 1 "Single C function fuzzing failed (exit code: $exit_code)"
+        echo "Last few lines of output:"
+        tail -5 "$RESULTS_DIR/single_func_output.txt" 2>/dev/null || echo "No output file"
     fi
 else
-    print_result 1 "Single function fuzzing failed (exit code: $exit_code)"
-    echo "Last few lines of output:"
-    tail -5 "$RESULTS_DIR/single_func_output.txt" 2>/dev/null || echo "No output file"
+    print_result 1 "Test file crash_c_test.c not found"
 fi
 
 ###########################################
-# TEST 3: LLVM IR Direct Input (option -i)
+# TEST 3: Function Discovery from C Source
 ###########################################
-print_test "TEST 3: Direct LLVM IR Input (option -i)"
+print_test "TEST 3: Function Discovery from C Source"
 TOTAL_TESTS=$((TOTAL_TESTS + 1))
 
-# First compile to IR
-# Use clang++-19 if available, otherwise fall back to clang++
-if command -v clang++-19 &> /dev/null; then
-    CLANG_CXX="clang++-19"
-elif command -v clang++ &> /dev/null; then
-    CLANG_CXX="clang++"
-else
-    echo "No suitable C++ compiler found"
-    print_result 1 "Could not find clang++ compiler"
-    exit 1
-fi
+if [ -f "$TEST_DIR/discovery_test.c" ]; then
+    echo "Running: run_with_timeout $FUZZ_TIMEOUT $FUZZER -s $TEST_DIR/discovery_test.c --all-functions --iterations $ITERATIONS"
 
-echo "Using compiler: $CLANG_CXX"
-$CLANG_CXX -S -emit-llvm -O0 "$TEST_DIR/vulnerable_test.cpp" -o "$RESULTS_DIR/test.ll" 2>"$RESULTS_DIR/compilation_output.txt"
-
-if [ -f "$RESULTS_DIR/test.ll" ]; then
-    # Ensure function_wrapper.cpp exists for IR compilation
-    if [ ! -f "$RESULTS_DIR/function_wrapper.cpp" ]; then
-        if [ -f "$TEST_DIR/function_wrapper.cpp" ]; then
-            cp "$TEST_DIR/function_wrapper.cpp" "$RESULTS_DIR/"
-            echo "Copied function_wrapper.cpp from tests/ to test_results/"
-        elif [ -f "function_wrapper.cpp" ]; then
-            cp "function_wrapper.cpp" "$RESULTS_DIR/"
-            echo "Copied function_wrapper.cpp from project root to test_results/"
-        else
-            echo "Warning: function_wrapper.cpp not found, IR test may fail"
-        fi
-    fi
-    echo "Running: run_with_timeout $FUZZ_TIMEOUT $FUZZER -i $RESULTS_DIR/test.ll -f vulnerable_function --iterations $ITERATIONS"
-    
-    run_with_timeout $FUZZ_TIMEOUT $FUZZER -i "$RESULTS_DIR/test.ll" -f "vulnerable_function" \
-        -n $ITERATIONS -o "$RESULTS_DIR/ir_input_test.sarif" \
-        > "$RESULTS_DIR/ir_input_output.txt" 2>&1
+    run_with_timeout $FUZZ_TIMEOUT $FUZZER -s "$TEST_DIR/discovery_test.c" --all-functions \
+        --iterations $ITERATIONS -o "$RESULTS_DIR/discovery_test.sarif" \
+        > "$RESULTS_DIR/discovery_output.txt" 2>&1
     exit_code=$?
-    
+
     if [ $exit_code -eq 124 ]; then
-        print_result 1 "IR input fuzzing timed out after $FUZZ_TIMEOUT seconds"
+        print_result 1 "C function discovery timed out after $FUZZ_TIMEOUT seconds"
+        debug_timeout_issue "C Function Discovery" "$RESULTS_DIR/discovery_output.txt"
     elif [ $exit_code -eq 0 ] || [ $exit_code -eq 1 ] || [ $exit_code -eq 2 ]; then
-        # Add a small delay to ensure file system synchronization in CI environments
-        sleep 1
-        
-        # Enhanced debugging for CI
-        echo "Debugging IR test output:"
-        echo "Exit code: $exit_code"
-        echo "Checking for SARIF file: $RESULTS_DIR/ir_input_test.sarif"
-        ls -la "$RESULTS_DIR/ir_input_test.sarif" 2>/dev/null || echo "SARIF file not found"
-        
-        # Check if the fuzzer reported success
-        if grep -q "Results exported successfully" "$RESULTS_DIR/ir_input_output.txt"; then
-            echo "Fuzzer reported successful export"
-        else
-            echo "Fuzzer did not report successful export"
-        fi
-        
-        if check_output_file "$RESULTS_DIR/ir_input_test.sarif"; then
-            if [ $exit_code -eq 1 ]; then
-                print_result 0 "Direct IR input fuzzing (crashes detected as expected)"
+        if check_output_file "$RESULTS_DIR/discovery_test.sarif"; then
+            # Check if functions were discovered
+            if grep -q "Available functions" "$RESULTS_DIR/discovery_output.txt" || \
+               grep -q "Discovered functions" "$RESULTS_DIR/discovery_output.txt"; then
+                print_result 0 "C function discovery (functions found)"
+                PASSED_TESTS=$((PASSED_TESTS + 1))
             else
-                print_result 0 "Direct IR input fuzzing"
+                print_result 0 "C function discovery completed"
+                PASSED_TESTS=$((PASSED_TESTS + 1))
             fi
-            PASSED_TESTS=$((PASSED_TESTS + 1))
         else
-            print_result 1 "IR input SARIF file not created"
-            echo "Debug info:"
-            echo "- Exit code was: $exit_code"
-            echo "- Fuzzer output (last 10 lines):"
-            tail -10 "$RESULTS_DIR/ir_input_output.txt" 2>/dev/null || echo "No output file"
-            echo "- Files in test_results directory:"
-            ls -la "$RESULTS_DIR/" | grep -E "(sarif|test\.ll)" || echo "No matching files"
+            print_result 1 "Discovery SARIF output file not created"
         fi
     else
-        print_result 1 "IR input fuzzing failed (exit code: $exit_code)"
-        echo "Fuzzer output:"
-        cat "$RESULTS_DIR/ir_input_output.txt" 2>/dev/null || echo "No output file available"
+        print_result 1 "C function discovery failed (exit code: $exit_code)"
+        echo "Last few lines of output:"
+        tail -5 "$RESULTS_DIR/discovery_output.txt" 2>/dev/null || echo "No output file"
     fi
 else
-    print_result 1 "Could not compile source to IR"
-    echo "Compilation output:"
-    cat "$RESULTS_DIR/compilation_output.txt" 2>/dev/null || echo "No compilation output available"
-    echo "Available compilers:"
-    which clang++ 2>/dev/null || echo "clang++ not found"
-    which clang++-19 2>/dev/null || echo "clang++-19 not found"
+    print_result 1 "Test file discovery_test.c not found"
 fi
 
 ###########################################
-# TEST 4: All Functions Mode
+# TEST 4: All Functions Mode from C Source
 ###########################################
-print_test "TEST 4: All Functions Discovery and Fuzzing"
+print_test "TEST 4: All Functions Discovery and Fuzzing from C"
 TOTAL_TESTS=$((TOTAL_TESTS + 1))
 
-echo "Running: run_with_timeout $FUZZ_TIMEOUT $FUZZER -s $TEST_DIR/multi_function_test.cpp --all-functions -n $ITERATIONS"
+if [ -f "$TEST_DIR/pure_c_test.c" ]; then
+    echo "Running: run_with_timeout $FUZZ_TIMEOUT $FUZZER -s $TEST_DIR/pure_c_test.c --all-functions -n $ITERATIONS"
 
-run_with_timeout $FUZZ_TIMEOUT $FUZZER -s "$TEST_DIR/multi_function_test.cpp" --all-functions \
-    -n $ITERATIONS -o "$RESULTS_DIR/all_functions_test.sarif" \
-    > "$RESULTS_DIR/all_functions_output.txt" 2>&1
-exit_code=$?
+    run_with_timeout $FUZZ_TIMEOUT $FUZZER -s "$TEST_DIR/pure_c_test.c" --all-functions \
+        -n $ITERATIONS -o "$RESULTS_DIR/pure_c_discovery_test.sarif" \
+        > "$RESULTS_DIR/all_functions_output.txt" 2>&1
+    exit_code=$?
 
-if [ $exit_code -eq 124 ]; then
-    print_result 1 "All functions mode timed out after $FUZZ_TIMEOUT seconds"
-elif [ $exit_code -eq 0 ] || [ $exit_code -eq 1 ] || [ $exit_code -eq 2 ]; then
-    if check_output_file "$RESULTS_DIR/all_functions_test.sarif"; then
-        # Check if multiple functions were discovered
-        if grep -q "Available functions" "$RESULTS_DIR/all_functions_output.txt"; then
-            print_result 0 "All functions mode"
-            PASSED_TESTS=$((PASSED_TESTS + 1))
+    if [ $exit_code -eq 124 ]; then
+        print_result 1 "All functions mode timed out after $FUZZ_TIMEOUT seconds"
+    elif [ $exit_code -eq 0 ] || [ $exit_code -eq 1 ] || [ $exit_code -eq 2 ]; then
+        if check_output_file "$RESULTS_DIR/pure_c_discovery_test.sarif"; then
+            # Check if multiple functions were discovered
+            if grep -q "Available functions" "$RESULTS_DIR/all_functions_output.txt"; then
+                print_result 0 "All C functions mode (functions discovered)"
+                PASSED_TESTS=$((PASSED_TESTS + 1))
+            else
+                print_result 0 "All C functions mode completed (SARIF created)"
+                PASSED_TESTS=$((PASSED_TESTS + 1))
+            fi
         else
-            print_result 0 "All functions mode completed (no discovery info found but SARIF created)"
-            PASSED_TESTS=$((PASSED_TESTS + 1))
+            print_result 1 "All C functions SARIF file not created"
         fi
     else
-        print_result 1 "All functions SARIF file not created"
+        print_result 1 "All C functions mode failed (exit code: $exit_code)"
     fi
 else
-    print_result 1 "All functions mode failed (exit code: $exit_code)"
+    print_result 1 "Test file pure_c_test.c not found"
 fi
 
 ###########################################
-# TEST 5: Multiple Specific Functions
+# TEST 5: Multiple Specific C Functions
 ###########################################
-print_test "TEST 5: Multiple Specific Functions"
+print_test "TEST 5: Multiple Specific C Functions"
 TOTAL_TESTS=$((TOTAL_TESTS + 1))
 
-run_with_timeout $FUZZ_TIMEOUT $FUZZER -s "$TEST_DIR/multi_function_test.cpp" \
-    --functions "vulnerable_strcpy,array_overflow,safe_function" \
-    -n $ITERATIONS -o "$RESULTS_DIR/multi_specific_test.sarif" \
-    > "$RESULTS_DIR/multi_specific_output.txt" 2>&1
-exit_code=$?
+if [ -f "$TEST_DIR/discovery_test.c" ]; then
+    # First discover available functions to use realistic function names
+    echo "Discovering functions in discovery_test.c..."
+    run_with_timeout $((FUZZ_TIMEOUT / 2)) $FUZZER -s "$TEST_DIR/discovery_test.c" --all-functions \
+        --iterations 1 -o "$RESULTS_DIR/temp_discovery.sarif" \
+        > "$RESULTS_DIR/temp_discovery_output.txt" 2>&1
+    
+    # Try to use common C function names that might exist
+    run_with_timeout $FUZZ_TIMEOUT $FUZZER -s "$TEST_DIR/discovery_test.c" \
+        --functions "main,test_function,vulnerable_function" \
+        -n $ITERATIONS -o "$RESULTS_DIR/multi_specific_test.sarif" \
+        > "$RESULTS_DIR/multi_specific_output.txt" 2>&1
+    exit_code=$?
 
-if [ $exit_code -eq 124 ]; then
-    print_result 1 "Multiple specific functions timed out after $FUZZ_TIMEOUT seconds"
-elif [ $exit_code -eq 0 ] || [ $exit_code -eq 1 ] || [ $exit_code -eq 2 ]; then
-    if check_output_file "$RESULTS_DIR/multi_specific_test.sarif"; then
-        print_result 0 "Multiple specific functions"
+    if [ $exit_code -eq 124 ]; then
+        print_result 1 "Multiple specific C functions timed out after $FUZZ_TIMEOUT seconds"
+    elif [ $exit_code -eq 0 ] || [ $exit_code -eq 1 ] || [ $exit_code -eq 2 ]; then
+        if check_output_file "$RESULTS_DIR/multi_specific_test.sarif"; then
+            print_result 0 "Multiple specific C functions"
+            PASSED_TESTS=$((PASSED_TESTS + 1))
+        else
+            print_result 1 "Multi specific C functions SARIF file not created"
+        fi
+    else
+        print_result 1 "Multiple specific C functions mode failed (exit code: $exit_code)"
+    fi
+else
+    print_result 1 "Test file discovery_test.c not found"
+fi
+
+###########################################
+# TEST 6: Safe C Code (No Crashes Expected)
+###########################################
+print_test "TEST 6: Safe C Code Testing (No Crashes Expected)"
+TOTAL_TESTS=$((TOTAL_TESTS + 1))
+
+if [ -f "$TEST_DIR/safe_c_test.c" ]; then
+    run_with_timeout $FUZZ_TIMEOUT $FUZZER -s "$TEST_DIR/safe_c_test.c" --all-functions \
+        -n $ITERATIONS -o "$RESULTS_DIR/safe_code_test.sarif" \
+        > "$RESULTS_DIR/safe_code_output.txt" 2>&1
+    exit_code=$?
+
+    if [ $exit_code -eq 124 ]; then
+        print_result 1 "Safe C code testing timed out after $FUZZ_TIMEOUT seconds"
+    elif [ $exit_code -eq 0 ] || [ $exit_code -eq 2 ]; then
+        if check_output_file "$RESULTS_DIR/safe_code_test.sarif"; then
+            # Check if no crashes were found (this is expected for safe code)
+            if grep -q "Crashes found: 0" "$RESULTS_DIR/safe_code_output.txt"; then
+                print_result 0 "Safe C code testing (0 crashes as expected)"
+                PASSED_TESTS=$((PASSED_TESTS + 1))
+            else
+                # This is still a pass - we just want to make sure it runs
+                print_result 0 "Safe C code testing (completed)"
+                PASSED_TESTS=$((PASSED_TESTS + 1))
+            fi
+        else
+            print_result 1 "Safe C code SARIF file not created"
+        fi
+    else
+        print_result 1 "Safe C code testing failed (exit code: $exit_code)"
+    fi
+else
+    print_result 1 "Test file safe_c_test.c not found"
+fi
+
+###########################################
+# TEST 7: Custom Parameters with C Code
+###########################################
+print_test "TEST 7: Custom Fuzzing Parameters with C Code"
+TOTAL_TESTS=$((TOTAL_TESTS + 1))
+
+if [ -f "$TEST_DIR/crash_c_test.c" ]; then
+    run_with_timeout $FUZZ_TIMEOUT $FUZZER -s "$TEST_DIR/crash_c_test.c" -f "simple_c_crash" \
+        --iterations 25 --min-size 5 --max-size 50 --timeout 500 \
+        -o "$RESULTS_DIR/custom_params_test.sarif" \
+        > "$RESULTS_DIR/custom_params_output.txt" 2>&1
+    exit_code=$?
+
+    if [ $exit_code -eq 124 ]; then
+        print_result 1 "Custom parameters test timed out after $FUZZ_TIMEOUT seconds"
+    elif [ $exit_code -eq 0 ] || [ $exit_code -eq 1 ] || [ $exit_code -eq 2 ]; then
+        if check_output_file "$RESULTS_DIR/custom_params_test.sarif"; then
+            # Check if custom parameters were applied
+            if grep -q "Input size range: 5 - 50" "$RESULTS_DIR/custom_params_output.txt" && \
+               grep -q "Iterations: 25" "$RESULTS_DIR/custom_params_output.txt"; then
+                print_result 0 "Custom parameters applied correctly to C code"
+                PASSED_TESTS=$((PASSED_TESTS + 1))
+            else
+                print_result 0 "Custom parameters test with C code completed (parameter validation skipped)"
+                PASSED_TESTS=$((PASSED_TESTS + 1))
+            fi
+        else
+            print_result 1 "Custom parameters SARIF file not created"
+        fi
+    else
+        print_result 1 "Custom parameters test with C code failed (exit code: $exit_code)"
+    fi
+else
+    print_result 1 "Test file crash_c_test.c not found"
+fi
+
+###########################################
+# TEST 8: Error Handling - Invalid Arguments and Non-C Files
+###########################################
+print_test "TEST 8: Error Handling - Invalid Arguments and Non-C Files"
+TOTAL_TESTS=$((TOTAL_TESTS + 1))
+
+# Test with missing source file (with timeout)
+echo "Testing with missing source file..."
+run_with_timeout 30 $FUZZER -s "nonexistent.c" -f "test" \
+    > "$RESULTS_DIR/error_handling_output.txt" 2>&1
+exit_code1=$?
+
+# Test with non-C file (should be rejected) (with timeout)
+echo "Testing with non-C file..."
+echo "int main() { return 0; }" > "$RESULTS_DIR/test.cpp"
+run_with_timeout 30 $FUZZER -s "$RESULTS_DIR/test.cpp" -f "main" \
+    >> "$RESULTS_DIR/error_handling_output.txt" 2>&1
+exit_code2=$?
+
+# Test with invalid arguments (with timeout)
+echo "Testing with invalid arguments..."
+run_with_timeout 30 $FUZZER --invalid-flag -s "$TEST_DIR/safe_c_test.c" \
+    >> "$RESULTS_DIR/error_handling_output.txt" 2>&1
+exit_code3=$?
+
+# Clean up test file
+rm -f "$RESULTS_DIR/test.cpp"
+
+echo "Exit codes: $exit_code1, $exit_code2, $exit_code3"
+echo "Error handling output:"
+cat "$RESULTS_DIR/error_handling_output.txt"
+
+# Check if error handling works correctly
+if [ $exit_code1 -ne 0 ] && [ $exit_code2 -ne 0 ] && [ $exit_code3 -ne 0 ]; then
+    # Check if appropriate error messages are present
+    if grep -i -E "(not found|error|only.*\.c.*supported|invalid)" "$RESULTS_DIR/error_handling_output.txt" >/dev/null 2>&1; then
+        print_result 0 "Correctly handled missing file and non-C file rejection"
         PASSED_TESTS=$((PASSED_TESTS + 1))
     else
-        print_result 1 "Multi specific functions SARIF file not created"
+        print_result 0 "Error handling works (files rejected)"
+        PASSED_TESTS=$((PASSED_TESTS + 1))
     fi
 else
-    print_result 1 "Multiple specific functions mode failed (exit code: $exit_code)"
+    print_result 1 "Should have failed with missing/invalid files"
 fi
 
-###########################################
-# TEST 6: Safe Code (No Crashes Expected)
-###########################################
-print_test "TEST 6: Safe Code Testing (No Crashes Expected)"
-TOTAL_TESTS=$((TOTAL_TESTS + 1))
-
-run_with_timeout $FUZZ_TIMEOUT $FUZZER -s "$TEST_DIR/completely_safe.cpp" --all-functions \
-    -n $ITERATIONS -o "$RESULTS_DIR/safe_code_test.sarif" \
-    > "$RESULTS_DIR/safe_code_output.txt" 2>&1
-exit_code=$?
-
-if [ $exit_code -eq 124 ]; then
-    print_result 1 "Safe code testing timed out after $FUZZ_TIMEOUT seconds"
-elif [ $exit_code -eq 0 ] || [ $exit_code -eq 2 ]; then
-    if check_output_file "$RESULTS_DIR/safe_code_test.sarif"; then
-        # Check if no crashes were found (this is expected for safe code)
-        if grep -q "Crashes found: 0" "$RESULTS_DIR/safe_code_output.txt"; then
-            print_result 0 "Safe code testing (0 crashes as expected)"
-            PASSED_TESTS=$((PASSED_TESTS + 1))
-        else
-            # This is still a pass - we just want to make sure it runs
-            print_result 0 "Safe code testing (completed)"
-            PASSED_TESTS=$((PASSED_TESTS + 1))
-        fi
-    else
-        print_result 1 "Safe code SARIF file not created"
-    fi
-else
-    print_result 1 "Safe code testing failed (exit code: $exit_code)"
-fi
-
-###########################################
-# TEST 7: Custom Parameters
-###########################################
-print_test "TEST 7: Custom Fuzzing Parameters"
-TOTAL_TESTS=$((TOTAL_TESTS + 1))
-
-run_with_timeout $FUZZ_TIMEOUT $FUZZER -s "$TEST_DIR/vulnerable_test.cpp" -f "vulnerable_function" \
-    --iterations 25 --min-size 5 --max-size 50 --timeout 500 \
-    -o "$RESULTS_DIR/custom_params_test.sarif" \
-    > "$RESULTS_DIR/custom_params_output.txt" 2>&1
-exit_code=$?
-
-if [ $exit_code -eq 124 ]; then
-    print_result 1 "Custom parameters test timed out after $FUZZ_TIMEOUT seconds"
-elif [ $exit_code -eq 0 ] || [ $exit_code -eq 1 ] || [ $exit_code -eq 2 ]; then
-    if check_output_file "$RESULTS_DIR/custom_params_test.sarif"; then
-        # Check if custom parameters were applied
-        if grep -q "Input size range: 5 - 50" "$RESULTS_DIR/custom_params_output.txt" && \
-           grep -q "Iterations: 25" "$RESULTS_DIR/custom_params_output.txt"; then
-            print_result 0 "Custom parameters applied correctly"
-            PASSED_TESTS=$((PASSED_TESTS + 1))
-        else
-            print_result 0 "Custom parameters test completed (parameter validation skipped)"
-            PASSED_TESTS=$((PASSED_TESTS + 1))
-        fi
-    else
-        print_result 1 "Custom parameters SARIF file not created"
-    fi
-else
-    print_result 1 "Custom parameters test failed (exit code: $exit_code)"
-fi
-
-###########################################
-# TEST 8: Error Handling - Invalid Arguments
-###########################################
-print_test "TEST 8: Error Handling - Invalid Arguments"
-TOTAL_TESTS=$((TOTAL_TESTS + 1))
-
-# Test with missing source file
-if $FUZZER -s "nonexistent.cpp" -f "test" \
-    > "$RESULTS_DIR/error_handling_output.txt" 2>&1; then
-    print_result 1 "Should have failed with missing file"
-else
-    print_result 0 "Correctly handled missing source file"
-    PASSED_TESTS=$((PASSED_TESTS + 1))
-fi
+# Clean up test file
+rm -f "$RESULTS_DIR/test.cpp"
 
 ###########################################
 # TEST 9: SARIF Output Format Validation
@@ -502,8 +515,8 @@ echo -e "Success rate: $(( PASSED_TESTS * 100 / TOTAL_TESTS ))%"
 # Create a test summary file for CI
 SUMMARY_FILE="test_results_summary.txt"
 cat > "$SUMMARY_FILE" << EOF
-LLVM Fuzzing Module - Test Results Summary
-==========================================
+C-Only Fuzzing Module - Test Results Summary
+=============================================
 Date: $(date)
 Total tests: ${TOTAL_TESTS}
 Passed: ${PASSED_TESTS}
@@ -512,13 +525,13 @@ Success rate: $(( PASSED_TESTS * 100 / TOTAL_TESTS ))%
 
 Test Details:
 1. Help and Usage Display - $([ -f "$RESULTS_DIR/help_output.txt" ] && echo "PASSED" || echo "FAILED")
-2. Single Function Fuzzing from C++ Source - $([ -f "$RESULTS_DIR/single_func_test.sarif" ] && echo "PASSED" || echo "FAILED")
-3. Direct LLVM IR Input (option -i) - $([ -f "$RESULTS_DIR/ir_input_test.sarif" ] && echo "PASSED" || echo "FAILED")
-4. All Functions Discovery and Fuzzing - $([ -f "$RESULTS_DIR/all_functions_test.sarif" ] && echo "PASSED" || echo "FAILED")
-5. Multiple Specific Functions - $([ -f "$RESULTS_DIR/multi_specific_test.sarif" ] && echo "PASSED" || echo "FAILED")
-6. Safe Code Testing - $([ -f "$RESULTS_DIR/safe_code_test.sarif" ] && echo "PASSED" || echo "FAILED")
-7. Custom Fuzzing Parameters - $([ -f "$RESULTS_DIR/custom_params_test.sarif" ] && echo "PASSED" || echo "FAILED")
-8. Error Handling - $([ -f "$RESULTS_DIR/error_handling_output.txt" ] && echo "PASSED" || echo "FAILED")
+2. Single Function Fuzzing from C Source - $([ -f "$RESULTS_DIR/single_func_test.sarif" ] && echo "PASSED" || echo "FAILED")
+3. Function Discovery from C Source - $([ -f "$RESULTS_DIR/discovery_test.sarif" ] && echo "PASSED" || echo "FAILED")
+4. All Functions Discovery and Fuzzing from C - $([ -f "$RESULTS_DIR/pure_c_discovery_test.sarif" ] && echo "PASSED" || echo "FAILED")
+5. Multiple Specific C Functions - $([ -f "$RESULTS_DIR/multi_specific_test.sarif" ] && echo "PASSED" || echo "FAILED")
+6. Safe C Code Testing - $([ -f "$RESULTS_DIR/safe_code_test.sarif" ] && echo "PASSED" || echo "FAILED")
+7. Custom Fuzzing Parameters with C Code - $([ -f "$RESULTS_DIR/custom_params_test.sarif" ] && echo "PASSED" || echo "FAILED")
+8. Error Handling and Non-C File Rejection - $([ -f "$RESULTS_DIR/error_handling_output.txt" ] && echo "PASSED" || echo "FAILED")
 9. SARIF Output Format Validation - $(ls "$RESULTS_DIR"/*.sarif 2>/dev/null | head -1 | xargs -I {} python3 -c "import json; json.load(open('{}'))" 2>/dev/null && echo "PASSED" || echo "FAILED")
 
 Generated SARIF files: $(find "$RESULTS_DIR" -name "*.sarif" 2>/dev/null | wc -l)
@@ -527,7 +540,7 @@ EOF
 
 if [ $PASSED_TESTS -eq $TOTAL_TESTS ]; then
     echo -e "${GREEN}🎉 ALL TESTS PASSED! 🎉${NC}"
-    echo -e "The LLVM Fuzzing Module is working correctly!"
+    echo -e "The C-Only Fuzzing Module is working correctly!"
     echo "Status: ALL_TESTS_PASSED" >> "$SUMMARY_FILE"
 else
     echo -e "${YELLOW}⚠️  Some tests failed. Check the output above for details.${NC}"

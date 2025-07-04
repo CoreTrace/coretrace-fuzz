@@ -1,7 +1,7 @@
 #include "fuzzing_application.h"
 #include <iostream>
 #include <chrono>
-#include <llvm/IR/Module.h>
+#include <filesystem>
 
 FuzzingApplication::FuzzingApplication(const CliOptions& options) 
     : options_(options) {
@@ -98,14 +98,23 @@ void FuzzingApplication::listAvailableFunctions() const {
     if (!sources_to_use.empty()) {
         BytecodeTransformer transformer;
         std::string temp_ir = sources_to_use[0] + ".ll";
-        auto module = transformer.loadIRModule(temp_ir);
-        if (module) {
-            auto functions = transformer.getFunctionNames(module.get());
-            if (!functions.empty()) {
-                std::cout << "Available functions in module:" << std::endl;
-                for (const auto& func : functions) {
-                    std::cout << "  - " << func << std::endl;
-                }
+        
+        // Try to generate IR first if it doesn't exist
+        if (!std::filesystem::exists(temp_ir)) {
+            transformer.transformSourceToIR(sources_to_use[0], temp_ir);
+        }
+        
+        // Extract function names from IR file or source file
+        auto functions = transformer.getFunctionNames(temp_ir);
+        if (functions.empty()) {
+            // Fallback to source parsing if IR parsing fails
+            functions = transformer.getFunctionNamesFromSource(sources_to_use[0]);
+        }
+        
+        if (!functions.empty()) {
+            std::cout << "Available functions in module:" << std::endl;
+            for (const auto& func : functions) {
+                std::cout << "  - " << func << std::endl;
             }
         }
     }

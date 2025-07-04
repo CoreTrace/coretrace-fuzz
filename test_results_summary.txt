@@ -1,6 +1,6 @@
-LLVM Fuzzing Module - Test Results Summary
-==========================================
-Date: Mon Jun 30 03:06:55 PM +04 2025
+C-Only Fuzzing Module - Test Results Summary
+=============================================
+Date: Fri Jul  4 03:37:13 PM +04 2025
 Total tests: 9
 Passed: 9
 Failed: 0
@@ -8,15 +8,15 @@ Success rate: 100%
 
 Test Details:
 1. Help and Usage Display - PASSED
-2. Single Function Fuzzing from C++ Source - PASSED
-3. Direct LLVM IR Input (option -i) - PASSED
-4. All Functions Discovery and Fuzzing - PASSED
-5. Multiple Specific Functions - PASSED
-6. Safe Code Testing - PASSED
-7. Custom Fuzzing Parameters - PASSED
-8. Error Handling - PASSED
+2. Single Function Fuzzing from C Source - PASSED
+3. Function Discovery from C Source - PASSED
+4. All Functions Discovery and Fuzzing from C - PASSED
+5. Multiple Specific C Functions - PASSED
+6. Safe C Code Testing - PASSED
+7. Custom Fuzzing Parameters with C Code - PASSED
+8. Error Handling and Non-C File Rejection - PASSED
 9. SARIF Output Format Validation - PASSED
 
-Generated SARIF files: 6
-Generated output files: 9
+Generated SARIF files: 10
+Generated output files: 11
 Status: ALL_TESTS_PASSED

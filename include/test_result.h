@@ -17,6 +17,7 @@ struct TestResult {
     bool crashed;
     int signal_received;
     std::string error_message;
+    std::string function_name; // Added field to track which function was being tested
     
     TestResult() : crashed(false), signal_received(0) {}
 };

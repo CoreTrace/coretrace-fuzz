@@ -175,7 +175,18 @@ add_executable(fuzzing_module ${SOURCES} ${HEADERS})
 target_include_directories(fuzzing_module PRIVATE include)
 
 # Link libraries
-target_link_libraries(fuzzing_module ${LLVM_CLEAN_FLAGS} nlohmann_json::nlohmann_json pthread)
+target_link_libraries(fuzzing_module ${LLVM_CLEAN_FLAGS} nlohmann_json::nlohmann_json pthread dl)
+
+# Link to compilerlib
+find_library(COMPILERLIB_PATH NAMES compilerlib libcompilerlib.so
+            PATHS /usr/lib /usr/local/lib ${CMAKE_SOURCE_DIR}/lib)
+            
+if(COMPILERLIB_PATH)
+    message(STATUS "Found compilerlib at: ${COMPILERLIB_PATH}")
+    target_link_libraries(fuzzing_module ${COMPILERLIB_PATH})
+else()
+    message(WARNING "compilerlib not found, will use dlopen for dynamic loading")
+endif()
 
 # Add linker options separately for macOS compatibility
 if(LLVM_LINKER_OPTIONS)

@@ -54,33 +54,109 @@ bool MemoryExecutor::compileToExecutable(const std::string& source_path) {
     // Create temporary executable path
     executable_path_ = "/tmp/fuzz_exec_" + std::to_string(getpid());
     
-    // Construct compilation command
-    // Find the parent directory of source_path
+    // Determine if source is C or C++ based on extension
+    bool is_c_file = (source_path.length() >= 2 && 
+                     source_path.substr(source_path.length() - 2) == ".c");
+    
+    // Select compiler based on file type
+    std::string compiler = is_c_file ? "clang" : "clang++";
+    
+    // Find the parent directory of source_path to locate wrapper files
     size_t last_slash = source_path.find_last_of('/');
     std::string parent_dir = (last_slash != std::string::npos) ? 
                             source_path.substr(0, last_slash) : ".";
-    std::string wrapper_path = parent_dir + "/function_wrapper.cpp";
     
-    std::string compile_cmd = "clang++ -O0 -g -w " + wrapper_path + " " + source_path + " -o " + executable_path_;
+    // Look for wrapper files in both local directory and tests directory
+    std::string test_dir = parent_dir + "/../tests";
+    std::vector<std::string> potential_wrapper_paths = {
+        parent_dir + "/dynamic_wrapper_improved.c",
+        test_dir + "/dynamic_wrapper_improved.c",
+        parent_dir + "/dynamic_wrapper.c",
+        test_dir + "/dynamic_wrapper.c",
+        parent_dir + "/function_wrapper.cpp",
+        test_dir + "/function_wrapper.cpp"
+    };
     
-    std::cout << "Compiling with command: " << compile_cmd << std::endl;
-    
-    int result = system(compile_cmd.c_str());
-    if (result != 0) {
-        std::cerr << "Compilation failed with code: " << result << std::endl;
-        return false;
+    std::string wrapper_path;
+    for (const auto& path : potential_wrapper_paths) {
+        std::ifstream wrapper_file(path);
+        if (wrapper_file.good()) {
+            wrapper_path = path;
+            break;
+        }
     }
     
-    // Check if executable was created
-    struct stat buffer;
-    if (stat(executable_path_.c_str(), &buffer) != 0) {
-        std::cerr << "Executable not created: " << executable_path_ << std::endl;
-        return false;
+    if (wrapper_path.empty()) {
+        std::cerr << "Could not find any wrapper file. Compilation will likely fail." << std::endl;
+    } else {
+        std::cout << "Using wrapper: " << wrapper_path << std::endl;
     }
     
-    ready_ = true;
-    std::cout << "Successfully compiled to executable: " << executable_path_ << std::endl;
-    return true;
+    // Choose compilation strategy based on file type and wrapper
+    bool using_dynamic_wrapper = (wrapper_path.find("dynamic_wrapper") != std::string::npos);
+    std::vector<std::string> compile_strategies;
+    
+    if (using_dynamic_wrapper) {
+        // If using dynamic wrapper, prioritize strategies that work with dlopen/dlsym
+        if (is_c_file) {
+            // For C files with dynamic wrapper
+            compile_strategies.push_back("clang -O0 -g -w " + wrapper_path + " " + source_path + " -o " + executable_path_ + " -ldl -rdynamic");
+        } else {
+            // For C++ files with dynamic wrapper
+            compile_strategies.push_back("clang++ -O0 -g -w " + source_path + " -o /tmp/source_lib_" + std::to_string(getpid()) + ".so -shared -fPIC && " +
+                                    "clang -O0 -g -w " + wrapper_path + " -o " + executable_path_ + " -ldl -rdynamic -L/tmp -Wl,-rpath,/tmp");
+            
+            compile_strategies.push_back("clang -O0 -g -w " + wrapper_path + " " + source_path + " -o " + executable_path_ + " -ldl -rdynamic -lstdc++");
+        }
+    } else {
+        // Static function wrapper approach
+        if (is_c_file) {
+            // For C files, try separate compilation with static wrapper
+            std::string obj1 = "/tmp/wrapper_" + std::to_string(getpid()) + ".o";
+            std::string obj2 = "/tmp/source_" + std::to_string(getpid()) + ".o";
+            compile_strategies.push_back("clang++ -c -O0 -g -w " + wrapper_path + " -o " + obj1 + " && " +
+                                    "clang -c -O0 -g -w " + source_path + " -o " + obj2 + " && " +
+                                    "clang++ " + obj1 + " " + obj2 + " -o " + executable_path_ + " && " +
+                                    "rm -f " + obj1 + " " + obj2);
+            
+            // Last resort: Try mixing C and C++ directly
+            compile_strategies.push_back("clang++ -O0 -g -w " + wrapper_path + " " + source_path + " -o " + executable_path_);
+        } else {
+            // For C++ files, use standard C++ compilation
+            compile_strategies.push_back("clang++ -O0 -g -w " + wrapper_path + " " + source_path + " -o " + executable_path_);
+            
+            // Strategy 2: macOS specific with better linking
+            compile_strategies.push_back("clang++ -O0 -g -w -fno-common -Wl,-no_weak_imports " + wrapper_path + " " + source_path + " -o " + executable_path_);
+            
+            // Strategy 3: Force static linking of weak symbols
+            compile_strategies.push_back("clang++ -O0 -g -w -static-libgcc -fno-common " + wrapper_path + " " + source_path + " -o " + executable_path_);
+        }
+    }
+    
+    for (size_t i = 0; i < compile_strategies.size(); ++i) {
+        const std::string& compile_cmd = compile_strategies[i];
+        
+        std::cout << "Trying compilation strategy " << (i + 1) << ": " << compile_cmd << std::endl;
+        
+        int result = system(compile_cmd.c_str());
+        if (result == 0) {
+            // Check if executable was created
+            struct stat buffer;
+            if (stat(executable_path_.c_str(), &buffer) == 0) {
+                ready_ = true;
+                std::cout << "Successfully compiled to executable: " << executable_path_ << std::endl;
+                return true;
+            }
+        }
+        
+        std::cerr << "Compilation strategy " << (i + 1) << " failed with code: " << result << std::endl;
+        
+        // Clean up any partial files
+        unlink(executable_path_.c_str());
+    }
+    
+    std::cerr << "All compilation strategies failed" << std::endl;
+    return false;
 }
 
 TestResult MemoryExecutor::executeFunction(const TestInput& input, 
@@ -153,7 +229,6 @@ TestResult MemoryExecutor::executeWithTimeout(const TestInput& input,
         
         // Wait for child with timeout
         int status;
-        bool timeout_occurred = false;
         
         // Use alarm for timeout
         alarm(timeout.count() / 1000 + 1); // Convert to seconds + buffer

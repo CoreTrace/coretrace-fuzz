@@ -136,6 +136,9 @@ json SarifReporter::createResultFromCrash(const TestResult& crash, int index) {
     // Message
     std::stringstream msg;
     msg << "Crash detected";
+    if (!crash.function_name.empty()) {
+        msg << " in function '" << crash.function_name << "'";
+    }
     if (crash.signal_received != 0) {
         msg << " (" << signalToString(crash.signal_received) << ")";
     }
@@ -160,6 +163,9 @@ json SarifReporter::createResultFromCrash(const TestResult& crash, int index) {
     properties["signalReceived"] = crash.signal_received;
     if (crash.signal_received != 0) {
         properties["signalName"] = signalToString(crash.signal_received);
+    }
+    if (!crash.function_name.empty()) {
+        properties["functionName"] = crash.function_name; // Add function name to properties
     }
     
     // Add input data in readable format
