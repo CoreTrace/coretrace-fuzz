@@ -146,49 +146,116 @@ bool BytecodeTransformer::compileWithCompilerLib(const std::string& source_path,
             std::cerr << "Error: Only C files (.c extension) are supported" << std::endl;
             return false;
         }
+
+        std::cout << "Compiling C file using libcompilerlib.so" << std::endl;
         
-        // Detect include paths automatically
-        std::vector<std::string> include_paths = detect_include_paths();
+        // Load the dynamic library
+        void* lib_handle = dlopen("./include/libcompilerlib.so", RTLD_LAZY);
+        if (!lib_handle) {
+            std::cerr << "Cannot load libcompilerlib.so: " << dlerror() << std::endl;
+            std::cout << "Falling back to clang system call" << std::endl;
+            return compileWithClangFallback(source_path, output_path);
+        }
+
+        // Clear any existing error
+        dlerror();
+
+        // Load the compile function from the library - note the namespace
+        typedef int (*compile_func_t)(int argc, const char** argv, char* output_buffer, int buffer_size);
+        compile_func_t compile_func = (compile_func_t) dlsym(lib_handle, "_ZN11compilerlib9compile_cEiPPKcPci");
         
-        // Configure compilation arguments for C files only
+        const char* dlsym_error = dlerror();
+        if (dlsym_error) {
+            std::cerr << "Cannot load mangled symbol for compile_c: " << dlsym_error << std::endl;
+            // Try the C symbol name
+            compile_func = (compile_func_t) dlsym(lib_handle, "compile_c");
+            dlsym_error = dlerror();
+            if (dlsym_error) {
+                std::cerr << "Cannot load symbol 'compile_c': " << dlsym_error << std::endl;
+                dlclose(lib_handle);
+                std::cout << "Falling back to clang system call" << std::endl;
+                return compileWithClangFallback(source_path, output_path);
+            }
+        }
+
+        // Configure compilation arguments for C files only (no program name)
         std::vector<std::string> compiler_args;
         
-        // Add compiler name
-        compiler_args.push_back("clang");
-        
-        // Add compilation options
+        // Add compilation options (no program name like in the example)
         compiler_args.push_back("-S");
         compiler_args.push_back("-emit-llvm");
-        compiler_args.push_back("-O0");
-        compiler_args.push_back("-g");
-        
-        // Add C-specific flags
-        compiler_args.push_back("-fPIC");
-        compiler_args.push_back("-rdynamic");
-        
-        // Add detected include paths
-        for (const auto& path : include_paths) {
-            compiler_args.push_back("-isystem");
-            compiler_args.push_back(path);
-        }
-        
-        // Add output and input files
         compiler_args.push_back("-o");
         compiler_args.push_back(output_path);
         compiler_args.push_back(source_path);
         
-        std::cout << "Compiling C file using clang directly" << std::endl;
+        // Add essential include paths
+        compiler_args.push_back("-isystem");
+        compiler_args.push_back("/usr/include");
+        if (directory_exists("/usr/lib/clang/20/include")) {
+            compiler_args.push_back("-isystem");
+            compiler_args.push_back("/usr/lib/clang/20/include");
+        }
+        
+        // Convert to char* array for the library function
+        std::vector<const char*> args_c;
+        for (const auto& arg : compiler_args) {
+            args_c.push_back(arg.c_str());
+        }
+        
+        std::cout << "Using libcompilerlib.so for C compilation" << std::endl;
+        std::cout << "Source: " << source_path << " -> Output: " << output_path << std::endl;
         
         // Display arguments for debugging
-        std::cout << "Command: ";
+        std::cout << "Arguments: ";
         for (const auto& arg : compiler_args) {
             std::cout << arg << " ";
         }
         std::cout << std::endl;
         
-        // Skip dynamic library loading and use clang directly for C files
-        std::cout << "Using direct clang compilation for C files (C++ support disabled)" << std::endl;
-        return compileWithClangFallback(source_path, output_path);
+        // Prepare output buffer for messages
+        char output_buffer[8192];
+        memset(output_buffer, 0, sizeof(output_buffer));
+        
+        std::cout << "Calling compile_c with " << args_c.size() << " arguments" << std::endl;
+        
+        // Call the library function with correct signature (like in the example)
+        int result = compile_func(static_cast<int>(args_c.size()), args_c.data(), output_buffer, sizeof(output_buffer));
+        
+        // Display compiler messages
+        if (strlen(output_buffer) > 0) {
+            std::cout << "Compiler messages: " << output_buffer << std::endl;
+        }
+        
+        // Close the library
+        dlclose(lib_handle);
+        
+        if (result) {
+            // Verify the output file was created
+            std::ifstream test_file(output_path);
+            if (!test_file.good()) {
+                std::cerr << "Library compilation succeeded but output file not found: " << output_path << std::endl;
+                return compileWithClangFallback(source_path, output_path);
+            }
+            
+            test_file.seekg(0, std::ios::end);
+            size_t size = test_file.tellg();
+            if (size == 0) {
+                std::cerr << "Library compilation succeeded but output file is empty: " << output_path << std::endl;
+                return compileWithClangFallback(source_path, output_path);
+            }
+            
+            std::cout << "Successfully compiled C file to IR using library: " << output_path 
+                      << " (size: " << size << " bytes)" << std::endl;
+            return true;
+        } else {
+            std::cerr << "Library compilation failed" << std::endl;
+            if (strlen(output_buffer) > 0) {
+                std::cerr << "Library output: " << output_buffer << std::endl;
+            }
+            std::cout << "Falling back to clang system call" << std::endl;
+            return compileWithClangFallback(source_path, output_path);
+        }
+        
     } catch (const std::exception& e) {
         std::cerr << "Exception in compileWithCompilerLib: " << e.what() << std::endl;
         return compileWithClangFallback(source_path, output_path);
